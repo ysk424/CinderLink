@@ -43,6 +43,7 @@ private:
     TSharedPtr<SMultiLineEditableTextBox> TranscriptBox;
     TSharedPtr<SMultiLineEditableTextBox> InputBox;
     TSharedPtr<SCheckBox> AllowEditsCheckBox;
+    TSharedPtr<SCheckBox> AllowEditorActionsCheckBox;
 
     FString ExecutablePath;
     FString ExecutableError;

@@ -3,6 +3,8 @@
 
 #include "CinderLinkProtocol.h"
 
+#include "CinderLinkEditorTools.h"
+
 #include "Dom/JsonValue.h"
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
@@ -91,6 +93,7 @@ void FCinderLinkAppServerClient::Disconnect()
     Process.Stop();
     PendingRequests.Reset();
     ThreadId.Reset();
+    ActiveTurnId.Reset();
     ProjectRoot.Reset();
     NextRequestId = 1;
     bTurnInProgress = false;
@@ -99,6 +102,7 @@ void FCinderLinkAppServerClient::Disconnect()
     bReadPermissionProfileReady = false;
     bEditPermissionProfileReady = false;
     bIsolationReady = false;
+    bActiveTurnAllowsEditorActions = false;
 }
 
 bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
@@ -115,12 +119,18 @@ bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
     }
 
     ThreadId.Reset();
+    ActiveTurnId.Reset();
     bIsolationReady = false;
+    bActiveTurnAllowsEditorActions = false;
     SendThreadStart();
     return true;
 }
 
-bool FCinderLinkAppServerClient::SendTurn(const FString& Text, bool bAllowProjectEdits, FString& OutError)
+bool FCinderLinkAppServerClient::SendTurn(
+    const FString& Text,
+    bool bAllowProjectEdits,
+    bool bAllowEditorActions,
+    FString& OutError)
 {
     FString Trimmed = Text;
     Trimmed.TrimStartAndEndInline();
@@ -164,11 +174,14 @@ bool FCinderLinkAppServerClient::SendTurn(const FString& Text, bool bAllowProjec
     }
 
     bTurnInProgress = true;
+    ActiveTurnId.Reset();
+    bActiveTurnAllowsEditorActions = bAllowEditorActions;
     Emit(
         ECinderLinkMessageKind::Status,
-        bAllowProjectEdits
-            ? TEXT("Turn started: project-only edits enabled; all escalation disabled.")
-            : TEXT("Turn started: project-only read access; all escalation disabled."));
+        FString::Printf(
+            TEXT("Turn started: project files %s; UE Editor actions %s; all escalation disabled."),
+            bAllowProjectEdits ? TEXT("editable") : TEXT("read-only"),
+            bAllowEditorActions ? TEXT("enabled") : TEXT("read-only")));
     return true;
 }
 
@@ -220,6 +233,8 @@ bool FCinderLinkAppServerClient::Tick(float DeltaTime)
     {
         bReportedProcessExit = true;
         bTurnInProgress = false;
+        bActiveTurnAllowsEditorActions = false;
+        ActiveTurnId.Reset();
         ThreadId.Reset();
         PendingRequests.Reset();
         Emit(ECinderLinkMessageKind::Error, TEXT("Codex App Server exited. Disconnect and reconnect to continue."));
@@ -273,7 +288,7 @@ void FCinderLinkAppServerClient::SendInitialize()
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("0.1.0"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("0.2.0"));
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetObjectField(TEXT("clientInfo"), ClientInfo);
@@ -331,6 +346,7 @@ void FCinderLinkAppServerClient::SendThreadStart()
     Params->SetStringField(TEXT("permissions"), ReadPermissionProfile);
     Params->SetBoolField(TEXT("ephemeral"), true);
     Params->SetObjectField(TEXT("config"), BuildIsolationConfig(McpServerNames));
+    Params->SetArrayField(TEXT("dynamicTools"), FCinderLinkEditorTools::BuildToolSpecs());
     TArray<TSharedPtr<FJsonValue>> RuntimeRoots;
     RuntimeRoots.Add(MakeShared<FJsonValueString>(ProjectRoot));
     Params->SetArrayField(TEXT("runtimeWorkspaceRoots"), RuntimeRoots);
@@ -394,6 +410,11 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
     if (GetObjectField(Message, TEXT("error"), ErrorObject))
     {
         bTurnInProgress = Kind == EPendingRequest::TurnStart ? false : bTurnInProgress;
+        if (Kind == EPendingRequest::TurnStart)
+        {
+            bActiveTurnAllowsEditorActions = false;
+            ActiveTurnId.Reset();
+        }
         if (Kind != EPendingRequest::TurnStart && Kind != EPendingRequest::Interrupt)
         {
             bIsolationReady = false;
@@ -551,6 +572,29 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         Emit(ECinderLinkMessageKind::Status, TEXT("Connected. Project-only read access is active; external tools are disabled."));
         return;
     }
+
+    if (Kind == EPendingRequest::TurnStart)
+    {
+        TSharedPtr<FJsonObject> Result;
+        TSharedPtr<FJsonObject> Turn;
+        if (!GetObjectField(Message, TEXT("result"), Result) ||
+            !GetObjectField(Result, TEXT("turn"), Turn))
+        {
+            bTurnInProgress = false;
+            bActiveTurnAllowsEditorActions = false;
+            ActiveTurnId.Reset();
+            Emit(ECinderLinkMessageKind::Error, TEXT("App Server returned an invalid turn identity."));
+            return;
+        }
+        ActiveTurnId = ReadString(Turn, TEXT("id"));
+        if (ActiveTurnId.IsEmpty())
+        {
+            bTurnInProgress = false;
+            bActiveTurnAllowsEditorActions = false;
+            Emit(ECinderLinkMessageKind::Error, TEXT("App Server omitted the active turn identity."));
+        }
+        return;
+    }
 }
 
 void FCinderLinkAppServerClient::HandleNotification(
@@ -635,10 +679,19 @@ void FCinderLinkAppServerClient::HandleNotification(
 
     if (Method == TEXT("turn/completed"))
     {
-        bTurnInProgress = false;
-        FString Status = TEXT("completed");
         TSharedPtr<FJsonObject> Turn;
-        if (GetObjectField(Params, TEXT("turn"), Turn))
+        GetObjectField(Params, TEXT("turn"), Turn);
+        const FString ReportedTurnId = ReadString(Turn, TEXT("id"));
+        if (!ActiveTurnId.IsEmpty() && !ReportedTurnId.IsEmpty() && ReportedTurnId != ActiveTurnId)
+        {
+            Emit(ECinderLinkMessageKind::Warning, TEXT("Ignored completion for a stale Codex turn."));
+            return;
+        }
+        bTurnInProgress = false;
+        bActiveTurnAllowsEditorActions = false;
+        ActiveTurnId.Reset();
+        FString Status = TEXT("completed");
+        if (Turn.IsValid())
         {
             const FString Reported = ReadString(Turn, TEXT("status"));
             if (!Reported.IsEmpty())
@@ -704,6 +757,44 @@ void FCinderLinkAppServerClient::HandleServerRequest(
         return;
     }
 
+    if (Method == TEXT("item/tool/call"))
+    {
+        const FString RequestedThreadId = ReadString(Params, TEXT("threadId"));
+        const FString RequestedTurnId = ReadString(Params, TEXT("turnId"));
+        const FString ToolName = ReadString(Params, TEXT("tool"));
+        TSharedPtr<FJsonObject> Arguments;
+        const bool bArgumentsObject = GetObjectField(Params, TEXT("arguments"), Arguments);
+        if (!bTurnInProgress || ActiveTurnId.IsEmpty() || RequestedThreadId != ThreadId ||
+            RequestedTurnId != ActiveTurnId || !bArgumentsObject ||
+            !FCinderLinkEditorTools::IsKnownTool(ToolName))
+        {
+            TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
+            TSharedRef<FJsonObject> TextItem = MakeShared<FJsonObject>();
+            TextItem->SetStringField(TEXT("type"), TEXT("inputText"));
+            TextItem->SetStringField(TEXT("text"), TEXT("{\"error\":\"CinderLink rejected the tool context.\"}"));
+            TArray<TSharedPtr<FJsonValue>> ContentItems;
+            ContentItems.Add(MakeShared<FJsonValueObject>(TextItem));
+            Result->SetArrayField(TEXT("contentItems"), ContentItems);
+            Result->SetBoolField(TEXT("success"), false);
+            SendDynamicToolResponse(Id, Result);
+            Emit(ECinderLinkMessageKind::Warning, TEXT("Rejected an Unreal Editor tool outside the active verified turn."));
+            return;
+        }
+
+        FString Summary;
+        TSharedRef<FJsonObject> Result = FCinderLinkEditorTools::Execute(
+            ToolName,
+            Arguments,
+            ProjectRoot,
+            bActiveTurnAllowsEditorActions,
+            Summary);
+        SendDynamicToolResponse(Id, Result);
+        Emit(
+            Result->GetBoolField(TEXT("success")) ? ECinderLinkMessageKind::EditorAction : ECinderLinkMessageKind::Warning,
+            ToolName + TEXT(": ") + Summary);
+        return;
+    }
+
     SendMethodNotSupported(Id, Method);
     Emit(ECinderLinkMessageKind::Warning, TEXT("Declined an unsupported App Server interaction request."));
 }
@@ -724,6 +815,17 @@ void FCinderLinkAppServerClient::SendEmptyPermissionGrant(int64 Id)
     TSharedRef<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetObjectField(TEXT("permissions"), MakeShared<FJsonObject>());
     Result->SetStringField(TEXT("scope"), TEXT("turn"));
+    TSharedRef<FJsonObject> Response = MakeShared<FJsonObject>();
+    Response->SetNumberField(TEXT("id"), static_cast<double>(Id));
+    Response->SetObjectField(TEXT("result"), Result);
+    FString IgnoredError;
+    SendObject(Response, IgnoredError);
+}
+
+void FCinderLinkAppServerClient::SendDynamicToolResponse(
+    int64 Id,
+    const TSharedRef<FJsonObject>& Result)
+{
     TSharedRef<FJsonObject> Response = MakeShared<FJsonObject>();
     Response->SetNumberField(TEXT("id"), static_cast<double>(Id));
     Response->SetObjectField(TEXT("result"), Result);

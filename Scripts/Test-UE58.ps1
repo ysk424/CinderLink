@@ -12,6 +12,7 @@ $editor = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
 $artifactRoot = Join-Path $repositoryRoot 'BuildArtifacts'
 $testHostRoot = Join-Path $artifactRoot 'TestHost'
 $testProject = Join-Path $testHostRoot 'TestHost.uproject'
+$testPluginRoot = Join-Path $testHostRoot 'Plugins\CinderLink'
 $reportRoot = Join-Path $artifactRoot 'TestReport'
 
 if (-not (Test-Path -LiteralPath $editor -PathType Leaf)) {
@@ -22,13 +23,17 @@ if (-not (Test-Path -LiteralPath $editor -PathType Leaf)) {
 
 New-Item -ItemType Directory -Path $testHostRoot -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $testHostRoot 'Content') -Force | Out-Null
+if (Test-Path -LiteralPath $testPluginRoot) {
+    Remove-Item -LiteralPath $testPluginRoot -Recurse -Force
+}
+New-Item -ItemType Directory -Path (Split-Path -Parent $testPluginRoot) -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $artifactRoot 'CinderLink') -Destination $testPluginRoot -Recurse
 
 $projectDefinition = [ordered]@{
     FileVersion = 3
     EngineAssociation = '5.8'
     Category = ''
     Description = 'Generated host for CinderLink automation tests.'
-    AdditionalPluginDirectories = @('..\CinderLink')
     Plugins = @(
         [ordered]@{
             Name = 'CinderLink'
@@ -56,9 +61,18 @@ if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
 
 $report = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
 $failed = @($report.tests | Where-Object { $_.state -ne 'Success' })
-if ($editorExitCode -ne 0 -or $failed.Count -gt 0) {
+$requiredTests = @(
+    'CinderLink.Integration.AppServerHandshake',
+    'CinderLink.Security.EditProfile',
+    'CinderLink.Security.EditorToolPolicy',
+    'CinderLink.Security.ReadOnlyProfile'
+)
+$reportedTests = @($report.tests | ForEach-Object { $_.fullTestPath })
+$missing = @($requiredTests | Where-Object { $_ -notin $reportedTests })
+if ($editorExitCode -ne 0 -or $failed.Count -gt 0 -or $missing.Count -gt 0) {
     $failedNames = ($failed | ForEach-Object { $_.fullTestPath }) -join ', '
-    throw "CinderLink automation failed. Editor exit code: $editorExitCode. Failed tests: $failedNames"
+    $missingNames = $missing -join ', '
+    throw "CinderLink automation failed. Editor exit code: $editorExitCode. Failed tests: $failedNames. Missing tests: $missingNames"
 }
 
 Write-Host "CinderLink automation passed: $($report.tests.Count) tests." -ForegroundColor Green

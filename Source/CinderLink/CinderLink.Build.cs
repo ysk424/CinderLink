@@ -19,10 +19,12 @@ public class CinderLink : ModuleRules
         PrivateDependencyModuleNames.AddRange(
             new[]
             {
+                "AssetTools",
                 "CoreUObject",
                 "Engine",
                 "InputCore",
                 "Json",
+                "LevelEditor",
                 "Projects",
                 "Slate",
                 "SlateCore",

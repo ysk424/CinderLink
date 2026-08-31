@@ -20,9 +20,9 @@ function Assert-True {
 $pluginPath = Join-Path $repositoryRoot 'CinderLink.uplugin'
 $manifest = Get-Content -Raw -LiteralPath $pluginPath | ConvertFrom-Json
 Assert-True ($manifest.FriendlyName -eq 'CinderLink') 'Unexpected plugin name.'
-Assert-True ($manifest.Modules.Count -eq 1) 'The initial release must contain exactly one module.'
+Assert-True ($manifest.Modules.Count -eq 1) 'CinderLink must contain exactly one module.'
 Assert-True ($manifest.Modules[0].Type -eq 'Editor') 'The module must remain editor-only.'
-Assert-True ($manifest.Modules[0].PlatformAllowList -contains 'Win64') 'The initial release must remain Win64-only.'
+Assert-True ($manifest.Modules[0].PlatformAllowList -contains 'Win64') 'CinderLink must remain Win64-only.'
 
 $licensePath = Join-Path $repositoryRoot 'LICENSE'
 $licenseText = Get-Content -Raw -LiteralPath $licensePath

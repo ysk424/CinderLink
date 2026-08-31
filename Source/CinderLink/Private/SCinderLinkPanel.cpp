@@ -59,7 +59,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     .AutoWrapText(true)
                     .Text(LOCTEXT(
                         "SecurityBanner",
-                        "Project-only filesystem · no external tools · no escalation · sanitized environment"))
+                        "Project-only filesystem · built-in UE tools only · no external tools · no escalation"))
                 ]
             ]
 
@@ -146,14 +146,33 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                 .FillWidth(1.0f)
                 .VAlign(VAlign_Center)
                 [
-                    SAssignNew(AllowEditsCheckBox, SCheckBox)
-                    .IsChecked(ECheckBoxState::Unchecked)
-                    .ToolTipText(LOCTEXT(
-                        "AllowEditsTooltip",
-                        "When enabled, the next turn may write only inside the current project root."))
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
                     [
-                        SNew(STextBlock)
-                        .Text(LOCTEXT("AllowEdits", "Allow project edits for this turn"))
+                        SAssignNew(AllowEditsCheckBox, SCheckBox)
+                        .IsChecked(ECheckBoxState::Unchecked)
+                        .ToolTipText(LOCTEXT(
+                            "AllowEditsTooltip",
+                            "When enabled, the next turn may write only inside the current project root."))
+                        [
+                            SNew(STextBlock)
+                            .Text(LOCTEXT("AllowEdits", "Allow project file edits for this turn"))
+                        ]
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 3.0f, 0.0f, 0.0f)
+                    [
+                        SAssignNew(AllowEditorActionsCheckBox, SCheckBox)
+                        .IsChecked(ECheckBoxState::Unchecked)
+                        .ToolTipText(LOCTEXT(
+                            "AllowEditorActionsTooltip",
+                            "When enabled, the next turn may call CinderLink's allowlisted Unreal Editor actions. PIE start and image sending still require visible confirmation."))
+                        [
+                            SNew(STextBlock)
+                            .Text(LOCTEXT("AllowEditorActions", "Allow UE Editor actions for this turn"))
+                        ]
                     ]
                 ]
                 + SHorizontalBox::Slot()
@@ -242,9 +261,11 @@ FReply SCinderLinkPanel::OnSendClicked()
 {
     const FString Text = InputBox.IsValid() ? InputBox->GetText().ToString() : FString();
     const bool bAllowEdits = AllowEditsCheckBox.IsValid() && AllowEditsCheckBox->IsChecked();
+    const bool bAllowEditorActions =
+        AllowEditorActionsCheckBox.IsValid() && AllowEditorActionsCheckBox->IsChecked();
 
     FString Error;
-    if (!Client->SendTurn(Text, bAllowEdits, Error))
+    if (!Client->SendTurn(Text, bAllowEdits, bAllowEditorActions, Error))
     {
         SetStatus(Error, true);
         return FReply::Handled();
@@ -254,6 +275,8 @@ FReply SCinderLinkPanel::OnSendClicked()
     CleanText.TrimStartAndEndInline();
     AppendTranscript(TEXT("\nYou: ") + CleanText + TEXT("\n"));
     InputBox->SetText(FText::GetEmpty());
+    AllowEditsCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
+    AllowEditorActionsCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
     StreamingStartIndex = INDEX_NONE;
     return FReply::Handled();
 }
@@ -300,6 +323,10 @@ void SCinderLinkPanel::HandleMessage(const FCinderLinkMessage& Message)
 
     case ECinderLinkMessageKind::FileChange:
         AppendTranscript(TEXT("\n[Project files] ") + Message.Text + TEXT("\n"));
+        break;
+
+    case ECinderLinkMessageKind::EditorAction:
+        AppendTranscript(TEXT("\n[UE Editor] ") + Message.Text + TEXT("\n"));
         break;
 
     case ECinderLinkMessageKind::Warning:

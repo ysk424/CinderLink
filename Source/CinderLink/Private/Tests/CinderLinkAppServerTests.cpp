@@ -3,6 +3,7 @@
 
 #include "CinderLinkProcess.h"
 #include "CinderLinkProtocol.h"
+#include "CinderLinkEditorTools.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -354,6 +355,7 @@ namespace
             ThreadParams->SetObjectField(
                 TEXT("config"),
                 FCinderLinkAppServerClient::BuildIsolationConfig(State->McpServerNames));
+            ThreadParams->SetArrayField(TEXT("dynamicTools"), FCinderLinkEditorTools::BuildToolSpecs());
             TArray<TSharedPtr<FJsonValue>> RuntimeRoots;
             RuntimeRoots.Add(MakeShared<FJsonValueString>(Root));
             ThreadParams->SetArrayField(TEXT("runtimeWorkspaceRoots"), RuntimeRoots);
@@ -459,7 +461,7 @@ bool FCinderLinkAppServerHandshakeTest::RunTest(const FString& Parameters)
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink_test"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink Test"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("0.1.0"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("0.2.0"));
     TSharedRef<FJsonObject> InitializeParams = MakeShared<FJsonObject>();
     InitializeParams->SetObjectField(TEXT("clientInfo"), ClientInfo);
     TSharedRef<FJsonObject> Capabilities = MakeShared<FJsonObject>();

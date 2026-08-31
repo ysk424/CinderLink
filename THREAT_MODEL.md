@@ -10,6 +10,8 @@ Allow a user to work with a coding agent inside Unreal Editor while reducing the
 - Files outside the current Unreal project.
 - The host's inbound network surface.
 - Prevention of unattended permission escalation.
+- Unreal levels and assets against unapproved mutation, deletion, or replacement.
+- User awareness before PIE runtime code runs or a viewport image is sent to the model.
 
 ## Trust boundaries
 
@@ -29,6 +31,12 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 | Process persistence | Put the App Server in a Windows Job object configured to terminate descendants on close. |
 | Sensitive Unreal logs | Do not log raw prompts, responses, JSON messages, or child output. |
 | Protocol confusion | Parse one bounded JSON object per line and fail closed on unknown server requests. |
+| Unapproved Editor mutation | Keep read-only UE inspection separate from a one-turn **Allow UE Editor actions** consent bit; clear it after completion, failure, disconnect, or process exit. |
+| Arbitrary Editor execution | Expose fixed native functions only; provide no arbitrary Python, console-command, Blueprint-call, delete, or external MCP tool. |
+| Project asset loss | Restrict mutable level/asset targets to `/Game`, refuse dirty-level transitions and existing import/create targets, and use Unreal transactions where applicable. |
+| Host-file import | Accept only bounded PNG/JPEG/EXR/HDR files under the project root and reject traversal or Windows reparse points. |
+| Runtime side effects | Require a visible per-call confirmation before PIE start and refuse it in unattended sessions. |
+| Image disclosure | Require a visible per-call confirmation, downsize the active viewport capture, save it under the project's `Saved` directory, and disclose that it is sent to the model. |
 
 ## Residual risks
 
@@ -38,6 +46,9 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 - A malicious or replaced `codex.exe` runs with the permissions of the editor, although its inherited environment is minimized. Always inspect the resolved path.
 - Commands and project edits within the selected profile can still be harmful to the project. Keep backups and use version control.
 - Unreal Editor itself has broad access to project and host data. CinderLink cannot sandbox the editor.
+- An allowlisted Editor action runs inside the trusted Unreal process. Actor construction, property-change handlers, third-party Editor plugins, and PIE runtime code may themselves perform filesystem, hardware, or network activity outside CinderLink's Codex sandbox.
+- The model may make an incorrect but permitted Editor change. Transactions and the absence of delete/overwrite primitives reduce impact but do not replace source control or backups.
+- Client-defined App Server tools are experimental upstream and may change. A protocol compatibility failure should reject the thread or tool call, but users should test upgrades before production use.
 - The official Codex service, authentication files, dependencies, and operating-system sandbox remain outside this repository's implementation boundary.
 
 ## Explicit non-goals
@@ -45,5 +56,6 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 - Providing a general remote administration interface.
 - Managing or storing API keys.
 - Enabling arbitrary outbound HTTP requests from tools.
+- Providing general Python, console-command, Blueprint-call, deletion, or arbitrary reflection execution in Unreal Editor.
 - Providing an approval path that broadens filesystem or network permissions.
 - Claiming formal verification or absolute security.

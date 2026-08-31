@@ -16,6 +16,7 @@ enum class ECinderLinkMessageKind : uint8
     AssistantFinal,
     Command,
     FileChange,
+    EditorAction,
     Warning,
     Error,
     TurnCompleted
@@ -42,7 +43,11 @@ public:
     bool Connect(const FString& ExecutablePath, const FString& ProjectRoot, FString& OutError);
     void Disconnect();
     bool StartNewThread(FString& OutError);
-    bool SendTurn(const FString& Text, bool bAllowProjectEdits, FString& OutError);
+    bool SendTurn(
+        const FString& Text,
+        bool bAllowProjectEdits,
+        bool bAllowEditorActions,
+        FString& OutError);
     bool InterruptTurn(FString& OutError);
 
     bool IsProcessRunning() const { return Process.IsRunning(); }
@@ -83,6 +88,7 @@ private:
     void HandleServerRequest(const TSharedPtr<FJsonObject>& Message, const FString& Method, int64 Id);
     void SendApprovalDecision(int64 Id, const FString& Decision);
     void SendEmptyPermissionGrant(int64 Id);
+    void SendDynamicToolResponse(int64 Id, const TSharedRef<FJsonObject>& Result);
     void SendMethodNotSupported(int64 Id, const FString& Method);
     void Emit(ECinderLinkMessageKind Kind, const FString& Text);
 
@@ -96,10 +102,12 @@ private:
     int64 NextRequestId = 1;
     FString ProjectRoot;
     FString ThreadId;
+    FString ActiveTurnId;
     TArray<FString> McpServerNames;
     bool bTurnInProgress = false;
     bool bReportedProcessExit = false;
     bool bReadPermissionProfileReady = false;
     bool bEditPermissionProfileReady = false;
     bool bIsolationReady = false;
+    bool bActiveTurnAllowsEditorActions = false;
 };
