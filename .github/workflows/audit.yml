@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 ysk424 and CinderLink contributors
+
+name: Repository security audit
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Run fail-closed repository audit
+        shell: pwsh
+        run: ./Scripts/Audit-Repository.ps1
