@@ -288,7 +288,7 @@ void FCinderLinkAppServerClient::SendInitialize()
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("0.2.0"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("0.2.1"));
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetObjectField(TEXT("clientInfo"), ClientInfo);
@@ -569,7 +569,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         }
 
         bIsolationReady = true;
-        Emit(ECinderLinkMessageKind::Status, TEXT("Connected. Project-only read access is active; external tools are disabled."));
+        Emit(ECinderLinkMessageKind::Status, TEXT("Connected. The project-only boundary is active; external tools are disabled."));
         return;
     }
 

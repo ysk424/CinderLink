@@ -23,7 +23,7 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 | --- | --- |
 | Secret environment-variable inheritance | Construct a new child environment from a fixed non-secret allowlist. |
 | Hidden data listener | Use anonymous `stdio` pipes only; do not bind sockets. |
-| Arbitrary host file writes | Default to a custom read-only profile; the edit profile grants writes only under the current project root. |
+| Arbitrary host file writes | The default edit profile grants writes only under the current project root. The user can clear the persistent project-edit toggle to select the read-only profile for a turn. |
 | Reading unrelated host files | Require Codex's elevated Windows sandbox and a custom profile whose only filesystem entry is `:workspace_roots`. Refuse startup if the profile is unavailable. |
 | Accidental temp-directory expansion | Replace `TEMP` and `TMP` with a project-local directory before starting Codex. |
 | Tool-based exfiltration | Disable tool network access, external features, and every discovered MCP server; verify MCP runtime status again inside the thread before sending prompts. |
@@ -31,7 +31,7 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 | Process persistence | Put the App Server in a Windows Job object configured to terminate descendants on close. |
 | Sensitive Unreal logs | Do not log raw prompts, responses, JSON messages, or child output. |
 | Protocol confusion | Parse one bounded JSON object per line and fail closed on unknown server requests. |
-| Unapproved Editor mutation | Keep read-only UE inspection separate from a one-turn **Allow UE Editor actions** consent bit; clear it after completion, failure, disconnect, or process exit. |
+| Unbounded Editor mutation | Keep read-only UE inspection separate from the persistent **Allow UE Editor actions** toggle, expose only fixed native actions, and continue to require per-call confirmation for PIE and viewport image capture. |
 | Arbitrary Editor execution | Expose fixed native functions only; provide no arbitrary Python, console-command, Blueprint-call, delete, or external MCP tool. |
 | Project asset loss | Restrict mutable level/asset targets to `/Game`, refuse dirty-level transitions and existing import/create targets, and use Unreal transactions where applicable. |
 | Host-file import | Accept only bounded PNG/JPEG/EXR/HDR files under the project root and reject traversal or Windows reparse points. |
@@ -45,6 +45,7 @@ CinderLink trusts the local Unreal Editor process, the exact `codex.exe` selecte
 - Custom permission profiles and the elevated Windows sandbox are upstream Codex security mechanisms. A change or defect in them can weaken the boundary. CinderLink refuses to continue when the expected profiles, runtime root, or disabled MCP state cannot be confirmed, but users should keep Codex current.
 - A malicious or replaced `codex.exe` runs with the permissions of the editor, although its inherited environment is minimized. Always inspect the resolved path.
 - Commands and project edits within the selected profile can still be harmful to the project. Keep backups and use version control.
+- Project-file edits and allowlisted Editor mutations are enabled by default and remain enabled between turns. A model mistake or malicious project content can therefore cause an in-scope mutation without fresh per-turn consent; clear the relevant checkbox before analysis-only prompts.
 - Unreal Editor itself has broad access to project and host data. CinderLink cannot sandbox the editor.
 - An allowlisted Editor action runs inside the trusted Unreal process. Actor construction, property-change handlers, third-party Editor plugins, and PIE runtime code may themselves perform filesystem, hardware, or network activity outside CinderLink's Codex sandbox.
 - The model may make an incorrect but permitted Editor change. Transactions and the absence of delete/overwrite primitives reduce impact but do not replace source control or backups.

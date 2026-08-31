@@ -151,13 +151,13 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     .AutoHeight()
                     [
                         SAssignNew(AllowEditsCheckBox, SCheckBox)
-                        .IsChecked(ECheckBoxState::Unchecked)
+                        .IsChecked(ECheckBoxState::Checked)
                         .ToolTipText(LOCTEXT(
                             "AllowEditsTooltip",
-                            "When enabled, the next turn may write only inside the current project root."))
+                            "Enabled by default. Turns may write only inside the current project root; clear this for read-only project access."))
                         [
                             SNew(STextBlock)
-                            .Text(LOCTEXT("AllowEdits", "Allow project file edits for this turn"))
+                            .Text(LOCTEXT("AllowEdits", "Allow project file edits"))
                         ]
                     ]
                     + SVerticalBox::Slot()
@@ -165,13 +165,13 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     .Padding(0.0f, 3.0f, 0.0f, 0.0f)
                     [
                         SAssignNew(AllowEditorActionsCheckBox, SCheckBox)
-                        .IsChecked(ECheckBoxState::Unchecked)
+                        .IsChecked(ECheckBoxState::Checked)
                         .ToolTipText(LOCTEXT(
                             "AllowEditorActionsTooltip",
-                            "When enabled, the next turn may call CinderLink's allowlisted Unreal Editor actions. PIE start and image sending still require visible confirmation."))
+                            "Enabled by default. Turns may call CinderLink's allowlisted Unreal Editor actions; clear this for read-only Editor access. PIE start and image sending still require visible confirmation."))
                         [
                             SNew(STextBlock)
-                            .Text(LOCTEXT("AllowEditorActions", "Allow UE Editor actions for this turn"))
+                            .Text(LOCTEXT("AllowEditorActions", "Allow UE Editor actions"))
                         ]
                     ]
                 ]
@@ -199,6 +199,10 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
     if (!ExecutableError.IsEmpty())
     {
         SetStatus(ExecutableError, true);
+    }
+    else
+    {
+        OnConnectClicked();
     }
 }
 
@@ -275,8 +279,6 @@ FReply SCinderLinkPanel::OnSendClicked()
     CleanText.TrimStartAndEndInline();
     AppendTranscript(TEXT("\nYou: ") + CleanText + TEXT("\n"));
     InputBox->SetText(FText::GetEmpty());
-    AllowEditsCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
-    AllowEditorActionsCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
     StreamingStartIndex = INDEX_NONE;
     return FReply::Handled();
 }
