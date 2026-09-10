@@ -17,14 +17,21 @@
 - 未保存アセットのバックアップ拒否は従来どおり維持。今回の利用者提供画像の拒否理由は
   Python の許可不足ではなく、未保存アセットだった。Python 初期 ON で保存済みバックアップの要件は変わらない。
 - 状態表示を追加。会話欄のスクロールは手動のまま。UE の同期 Python 実行中に UI が応答しない制約も維持。
-- 1.0.2 の画面目視確認は未実施。検証時点では利用中の UE が Engine 側の 1.0.1 を読み込み中のため、
-  指定先へのコピーは Editor 終了後に行う。
+- 利用者の UE 終了後、指定の Engine Marketplace フォルダーへ 1.0.2 をコピー。
+  旧版の 32 ファイルをバックアップして照合し、新版の 31 ファイルを SHA-256 で照合。
+  パッケージ内のソースと現在のチェックアウトも一致した。
+- プロジェクト側にプラグインを置かない独立した検証用プロジェクトで、Engine 側の導入済み
+  1.0.2 を読み込み、同じ 12 件の自動テストがすべて成功した。
+- 1.0.2 の画面目視確認と実モデルへの追加送信の往復試験は未実施。
 
 ローカル証跡（Git 管理外）:
 
 - `BuildArtifacts/build-v1-0-2.log`
 - `BuildArtifacts/test-v1-0-2.log`
 - `BuildArtifacts/TestReport-20260910T055652-cea2d022528e446895afa4cc66c66c3e/index.json`
+- `BuildArtifacts/install-v1-0-2.json`
+- `BuildArtifacts/InstalledReport-1-0-2/index.json`
+- `BuildArtifacts/test-installed-v1-0-2.log`
 
 ## 1.0.1: モデルと推論量の表示
 
