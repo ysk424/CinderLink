@@ -43,8 +43,18 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
-                .Text(LOCTEXT("Title", "CinderLink 1.0.0"))
+                .Text(LOCTEXT("Title", "CinderLink 1.0.1"))
                 .TextStyle(FAppStyle::Get(), TEXT("HeadingExtraSmall"))
+            ]
+
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+            [
+                SNew(STextBlock)
+                .Text(this, &SCinderLinkPanel::GetModelText)
+                .AutoWrapText(true)
+                .ToolTipText(LOCTEXT("ModelTooltip", "Resolved model and reasoning effort reported by Codex for this thread. Missing values are not guessed. Model settings are inherited from Codex; this panel does not change them."))
             ]
 
             + SVerticalBox::Slot()
@@ -437,6 +447,30 @@ FText SCinderLinkPanel::GetConnectButtonText() const
 FText SCinderLinkPanel::GetStatusText() const
 {
     return FText::FromString(StatusText);
+}
+
+FText SCinderLinkPanel::GetModelText() const
+{
+    if (!Client || !Client->IsProcessRunning())
+    {
+        return LOCTEXT("ModelDisconnected", "Model: -- | Reasoning: -- (disconnected)");
+    }
+    if (!Client->IsReady())
+    {
+        return LOCTEXT("ModelConnecting", "Model: -- | Reasoning: -- (awaiting connection)");
+    }
+    const FText NotReported = LOCTEXT("ModelNotReported", "not reported");
+    FText Settings = FText::Format(LOCTEXT("ModelSettings", "Model: {0} | Reasoning: {1}"),
+        Client->GetModel().IsEmpty() ? NotReported : FText::FromString(Client->GetModel()),
+        Client->GetReasoningEffort().IsEmpty() ? NotReported : FText::FromString(Client->GetReasoningEffort()));
+    if (!Client->GetReroutedModel().IsEmpty())
+    {
+        Settings = FText::Format(Client->IsTurnInProgress()
+            ? LOCTEXT("ModelReroutedActive", "{0}\nThis turn rerouted to: {1} (reasoning not reported)")
+            : LOCTEXT("ModelReroutedLast", "{0}\nLast turn rerouted to: {1} (reasoning not reported)"),
+            Settings, FText::FromString(Client->GetReroutedModel()));
+    }
+    return Settings;
 }
 
 FText SCinderLinkPanel::GetExecutableText() const

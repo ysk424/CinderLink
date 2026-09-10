@@ -38,6 +38,7 @@ private:
 
     FText GetConnectButtonText() const;
     FText GetStatusText() const;
+    FText GetModelText() const;
     FText GetExecutableText() const;
     FText GetProjectText() const;
     bool CanSend() const;

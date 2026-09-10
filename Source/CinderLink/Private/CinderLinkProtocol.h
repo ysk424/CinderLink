@@ -58,6 +58,9 @@ public:
     bool IsTurnInProgress() const { return bTurnInProgress; }
     const FString& GetProjectRoot() const { return ProjectRoot; }
     const FString& GetThreadId() const { return ThreadId; }
+    const FString& GetModel() const { return Model; }
+    const FString& GetReasoningEffort() const { return ReasoningEffort; }
+    const FString& GetReroutedModel() const { return ReroutedModel; }
 
     FCinderLinkMessageDelegate OnMessage;
 
@@ -97,6 +100,8 @@ private:
     void SendDynamicToolResponse(int64 Id, const TSharedRef<FJsonObject>& Result);
     void SendMethodNotSupported(int64 Id, const FString& Method);
     void Emit(ECinderLinkMessageKind Kind, const FString& Text);
+    void ResetModelInfo();
+    void ReadModelInfo(const TSharedPtr<FJsonObject>& Object, const TCHAR* EffortField);
 
     static FString ReadString(const TSharedPtr<FJsonObject>& Object, const TCHAR* Field);
     static int64 ReadRequestId(const TSharedPtr<FJsonObject>& Object);
@@ -109,6 +114,9 @@ private:
     FString ProjectRoot;
     FString ThreadId;
     FString ActiveTurnId;
+    FString Model;
+    FString ReasoningEffort;
+    FString ReroutedModel;
     TArray<FString> McpServerNames;
     bool bTurnInProgress = false;
     bool bReportedProcessExit = false;

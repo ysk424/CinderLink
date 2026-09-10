@@ -93,6 +93,7 @@ void FCinderLinkAppServerClient::Disconnect()
     Process.Stop();
     PendingRequests.Reset();
     ThreadId.Reset();
+    ResetModelInfo();
     ActiveTurnId.Reset();
     ProjectRoot.Reset();
     NextRequestId = 1;
@@ -121,6 +122,7 @@ bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
 
     ThreadId.Reset();
     ActiveTurnId.Reset();
+    ResetModelInfo();
     bIsolationReady = false;
     bActiveTurnAllowsEditorActions = false;
     RevokePythonAuthoring();
@@ -178,6 +180,7 @@ bool FCinderLinkAppServerClient::SendTurn(
 
     bTurnInProgress = true;
     ActiveTurnId.Reset();
+    ReroutedModel.Reset();
     bActiveTurnAllowsEditorActions = bAllowEditorActions;
     bActiveTurnAllowsPythonAuthoring = bAllowPythonAuthoring && bAllowProjectEdits && bAllowEditorActions;
     Emit(
@@ -244,6 +247,7 @@ bool FCinderLinkAppServerClient::Tick(float DeltaTime)
         ActiveTurnId.Reset();
         ThreadId.Reset();
         PendingRequests.Reset();
+        ResetModelInfo();
         Emit(ECinderLinkMessageKind::Error, TEXT("Codex App Server exited. Disconnect and reconnect to continue."));
     }
     return true;
@@ -295,7 +299,7 @@ void FCinderLinkAppServerClient::SendInitialize()
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.0"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.1"));
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetObjectField(TEXT("clientInfo"), ClientInfo);
@@ -359,7 +363,7 @@ void FCinderLinkAppServerClient::SendThreadStart()
     Params->SetArrayField(TEXT("runtimeWorkspaceRoots"), RuntimeRoots);
     Params->SetStringField(TEXT("serviceName"), TEXT("cinderlink"));
     Params->SetStringField(TEXT("developerInstructions"), TEXT(
-        "You are working inside CinderLink 1.0.0 in Unreal Editor. Use the supplied UE tools to inspect and edit the current project. "
+        "You are working inside CinderLink 1.0.1 in Unreal Editor. Use the supplied UE tools to inspect and edit the current project. "
         "Python authoring requires the user to enable the panel mode. Check ue_python_status before using it. "
         "Never bypass a disabled Python mode by creating startup scripts, console commands, launching another Unreal process or asking other tools to run Python. "
         "When authoring is enabled, use ue_python_execute for short UE Python batches. Declare all affected /Game directories in backup_paths, "
@@ -436,6 +440,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         if (Kind != EPendingRequest::TurnStart && Kind != EPendingRequest::Interrupt)
         {
             bIsolationReady = false;
+            ResetModelInfo();
         }
         const FString ErrorText = ReadString(ErrorObject, TEXT("message"));
         Emit(
@@ -521,6 +526,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
 
     if (Kind == EPendingRequest::ThreadStart)
     {
+        ResetModelInfo();
         TSharedPtr<FJsonObject> Result;
         TSharedPtr<FJsonObject> Thread;
         FString CandidateThreadId;
@@ -554,6 +560,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         else
         {
             ThreadId = CandidateThreadId;
+            ReadModelInfo(Result, TEXT("reasoningEffort"));
             SendMcpServerStatusList(EPendingRequest::ThreadMcpVerification, ThreadId);
         }
         return;
@@ -567,6 +574,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
             !Result->TryGetArrayField(TEXT("data"), Servers) || Servers == nullptr)
         {
             ThreadId.Reset();
+            ResetModelInfo();
             Emit(ECinderLinkMessageKind::Error, TEXT("Could not verify that external tools are disabled."));
             return;
         }
@@ -580,6 +588,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
             if (!Server.IsValid() || RuntimeStatus != TEXT("disabled") || bHasTools)
             {
                 ThreadId.Reset();
+                ResetModelInfo();
                 bIsolationReady = false;
                 Emit(ECinderLinkMessageKind::Error, TEXT("An external MCP, app, or plugin tool remained active. CinderLink stopped before sending a prompt."));
                 return;
@@ -617,12 +626,48 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
     }
 }
 
+void FCinderLinkAppServerClient::ResetModelInfo()
+{
+    Model.Reset();
+    ReasoningEffort.Reset();
+    ReroutedModel.Reset();
+}
+
+void FCinderLinkAppServerClient::ReadModelInfo(const TSharedPtr<FJsonObject>& Object, const TCHAR* EffortField)
+{
+    // Use the server's resolved settings, never guessed local configuration values.
+    Model = ReadString(Object, TEXT("model")).Left(256).ReplaceCharWithEscapedChar();
+    ReasoningEffort = ReadString(Object, EffortField).Left(64).ReplaceCharWithEscapedChar();
+}
+
 void FCinderLinkAppServerClient::HandleNotification(
     const TSharedPtr<FJsonObject>& Message,
     const FString& Method)
 {
     TSharedPtr<FJsonObject> Params;
     GetObjectField(Message, TEXT("params"), Params);
+
+    if (Method == TEXT("thread/settings/updated"))
+    {
+        TSharedPtr<FJsonObject> Settings;
+        if (!ThreadId.IsEmpty() && ReadString(Params, TEXT("threadId")) == ThreadId &&
+            GetObjectField(Params, TEXT("threadSettings"), Settings))
+        {
+            ReadModelInfo(Settings, TEXT("effort"));
+        }
+        return;
+    }
+
+    if (Method == TEXT("model/rerouted"))
+    {
+        if (bTurnInProgress && !ActiveTurnId.IsEmpty() &&
+            ReadString(Params, TEXT("threadId")) == ThreadId &&
+            ReadString(Params, TEXT("turnId")) == ActiveTurnId)
+        {
+            ReroutedModel = ReadString(Params, TEXT("toModel")).Left(256).ReplaceCharWithEscapedChar();
+        }
+        return;
+    }
 
     if (Method == TEXT("item/agentMessage/delta"))
     {

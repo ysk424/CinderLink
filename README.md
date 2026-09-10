@@ -2,7 +2,7 @@
 
 CinderLink is a local-first, auditable AI agent panel for Unreal Editor 5.8 on Windows. It connects the editor to the official Codex App Server over private standard input/output pipes. It does not open a listening port, ship a runtime script, collect telemetry, or operate a CinderLink server.
 
-**Version 1.0.0** adds an opt-in Python authoring mode: generate and execute UE Python in the open editor, inspect output and exceptions, back up declared content folders, and export reusable scripts.
+**Version 1.0.1** displays the thread's resolved model and reasoning effort at the top of the panel, using values reported by Codex. It retains the opt-in Python authoring mode introduced in 1.0.0: generate and execute UE Python in the open editor, inspect output and exceptions, back up declared content folders, and export reusable scripts.
 
 日本語の操作・復元手順: [USAGE.ja.md](Docs/USAGE.ja.md).
 検証結果と限界: [VALIDATION.ja.md](Docs/VALIDATION.ja.md).
@@ -71,6 +71,7 @@ CinderLink deliberately builds on the official [Codex App Server protocol](https
 
 1. Confirm the displayed executable and project paths.
 2. Wait for the automatic connection to report **Ready**. Press **Disconnect** if the agent is not needed.
+   The header shows, for example, **Model: gpt-6-astra | Reasoning: xhigh**. Values come from the active thread's App Server response and settings notifications, not from reading a separate configuration file. Missing values say **not reported**; disconnecting or opening a new thread clears the previous values. If Codex reports a model reroute for a turn, a separate line identifies that turn's model without guessing its reasoning effort. This is a display, not a model selector or slash-command interface.
 3. Both **Allow project file edits** and **Allow UE Editor actions** start enabled and remain in their current state after a prompt.
 4. Clear **Allow project file edits** for analysis or questions that should not change project files.
 5. Clear **Allow UE Editor actions** when a turn should inspect, but not change, the open level, assets, viewport, or PIE state. This is separate from direct Codex filesystem writes, although saving a level or importing an asset naturally makes Unreal write `.umap` or `.uasset` files inside the project.

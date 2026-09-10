@@ -258,6 +258,14 @@ namespace
                     return;
                 }
                 State->ThreadId = ThreadId;
+                FString Model;
+                FString Effort;
+                Test->TestTrue(TEXT("App Server reports the resolved thread model"),
+                    (*Result)->TryGetStringField(TEXT("model"), Model) && !Model.IsEmpty());
+                (*Result)->TryGetStringField(TEXT("reasoningEffort"), Effort);
+                Test->AddInfo(FString::Printf(TEXT("Resolved thread model: %s | Reasoning: %s"),
+                    *Model.Left(256).ReplaceCharWithEscapedChar(),
+                    Effort.IsEmpty() ? TEXT("not reported") : *Effort.Left(64).ReplaceCharWithEscapedChar()));
                 SendMcpVerificationRequest();
             }
             else if (Id == 5)
@@ -461,7 +469,7 @@ bool FCinderLinkAppServerHandshakeTest::RunTest(const FString& Parameters)
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink_test"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink Test"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.0"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.1"));
     TSharedRef<FJsonObject> InitializeParams = MakeShared<FJsonObject>();
     InitializeParams->SetObjectField(TEXT("clientInfo"), ClientInfo);
     TSharedRef<FJsonObject> Capabilities = MakeShared<FJsonObject>();

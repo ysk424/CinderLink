@@ -1,9 +1,31 @@
-# CinderLink 1.0.0 検証記録
+# CinderLink 検証記録
 
 2026-09-10 / Windows / UE 5.8 / Win64 Development Editor。
 ソースは `git/CinderLink` で作成。Arrietty-row の実行コード・風景には変更を加えていません。
 
-## 実施した検証
+## 1.0.1: モデルと推論量の表示
+
+- UE 5.8 のパッケージビルドとリポジトリ監査に合格。
+- パッケージ版と Engine の指定先に導入した版で、それぞれ既存の UE 自動テスト 10 件が成功。
+- 実際の Codex App Server の `thread/start` 応答で、モデル `gpt-6-astra`、推論量 `xhigh` を確認。
+  設定ファイルから推測した値ではない。テストはモデルへのプロンプトを送らない。
+- 表示は `thread/start` と、該当スレッドの `thread/settings/updated` を使用する。
+  未取得の値は `not reported` とし、切断や新しいスレッドでは以前の表示情報を消す。
+  `model/rerouted` はスレッド・ターンを照合し、元の設定と区別して表示する実装を確認。
+  実際のサービス側のモデル切り替えは今回発生させていない。
+- 指定の Engine Marketplace フォルダーへコピー。旧版の 32 ファイルをバックアップして照合し、
+  新版の 31 ファイルを SHA-256 で照合。
+- Windows の画面確認ツールは native pipe に接続できず、今回の表示の目視確認は未実施。
+  UE Editor を起動し直し、Window → CinderLink の上部で確認できる。
+
+ローカル証跡（Git 管理外）:
+
+- `BuildArtifacts/build-v1-0-1.log`
+- `BuildArtifacts/TestReport-20260910T050304-72c13a0f658b4d24beea9067adc44acc/index.json`
+- `BuildArtifacts/InstalledReport-1-0-1/index.json`
+- `BuildArtifacts/install-v1-0-1.json`
+
+## 1.0.0: 実施した検証
 
 - リポジトリ監査と UE プラグインのパッケージビルドに合格。
 - UE 自動テスト 10 件に合格。
