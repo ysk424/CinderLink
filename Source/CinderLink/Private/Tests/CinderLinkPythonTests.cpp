@@ -3,6 +3,7 @@
 
 #include "CinderLinkEditorTools.h"
 #include "CinderLinkProtocol.h"
+#include "SCinderLinkPanel.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -15,6 +16,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "UObject/Package.h"
+#include "Widgets/Input/SCheckBox.h"
 
 namespace
 {
@@ -219,6 +221,48 @@ bool FCinderLinkPythonTurnPolicyTest::RunTest(const FString& Parameters)
     Client.bActiveTurnAllowsPythonAuthoring = true;
     Client.Disconnect();
     TestFalse(TEXT("Disconnect clears authoring authority"), Client.bActiveTurnAllowsPythonAuthoring);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCinderLinkPythonPanelPolicyTest, "CinderLink.Security.PythonPanelPreference",
+    EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCinderLinkPythonPanelPolicyTest::RunTest(const FString& Parameters)
+{
+    // Exercise the real panel without starting a second App Server or sending a prompt.
+    TSharedRef<SCinderLinkPanel> Panel = SNew(SCinderLinkPanel).AutoConnect(false);
+    TestTrue(TEXT("Python is selected when a new panel opens"), Panel->PythonAuthoringCheckBox->IsChecked());
+    TestFalse(TEXT("A selected default does not authorize tools outside a submitted turn"),
+        Panel->Client->bActiveTurnAllowsPythonAuthoring);
+
+    Panel->Client->bActiveTurnAllowsPythonAuthoring = true;
+    Panel->OnInterruptClicked();
+    TestTrue(TEXT("Stop preserves the preference for the next turn"), Panel->PythonAuthoringCheckBox->IsChecked());
+    TestFalse(TEXT("Stop still revokes current-turn Python calls"), Panel->Client->bActiveTurnAllowsPythonAuthoring);
+
+    Panel->OnNewThreadClicked();
+    TestTrue(TEXT("New thread does not silently switch Python off"), Panel->PythonAuthoringCheckBox->IsChecked());
+    Panel->Client->bActiveTurnAllowsPythonAuthoring = true;
+    Panel->Client->Disconnect();
+    Panel->HandleMessage({ECinderLinkMessageKind::Error, TEXT("Test disconnection")});
+    TestTrue(TEXT("Disconnect and process-exit messages preserve selection"), Panel->PythonAuthoringCheckBox->IsChecked());
+    TestFalse(TEXT("Disconnected turns have no Python authority"), Panel->Client->bActiveTurnAllowsPythonAuthoring);
+
+    Panel->Client->bActiveTurnAllowsPythonAuthoring = true;
+    Panel->PythonAuthoringCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
+    Panel->OnPythonAuthoringChanged(ECheckBoxState::Unchecked);
+    TestFalse(TEXT("Manual OFF revokes active authority"), Panel->Client->bActiveTurnAllowsPythonAuthoring);
+    Panel->OnNewThreadClicked();
+    Panel->OnInterruptClicked();
+    Panel->HandleMessage({ECinderLinkMessageKind::Status, TEXT("Test reconnection status")});
+    TestFalse(TEXT("Manual OFF is not automatically re-enabled"), Panel->PythonAuthoringCheckBox->IsChecked());
+
+    Panel->PythonAuthoringCheckBox->SetIsChecked(ECheckBoxState::Checked);
+    Panel->Client->bActiveTurnAllowsPythonAuthoring = true;
+    Panel->AllowEditsCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
+    Panel->OnEditPermissionChanged(ECheckBoxState::Unchecked);
+    TestFalse(TEXT("Read-only selection disables Python"), Panel->PythonAuthoringCheckBox->IsChecked());
+    TestFalse(TEXT("Read-only selection revokes the active turn"), Panel->Client->bActiveTurnAllowsPythonAuthoring);
     return true;
 }
 

@@ -2,7 +2,7 @@
 
 CinderLink is a local-first, auditable AI agent panel for Unreal Editor 5.8 on Windows. It connects the editor to the official Codex App Server over private standard input/output pipes. It does not open a listening port, ship a runtime script, collect telemetry, or operate a CinderLink server.
 
-**Version 1.0.1** displays the thread's resolved model and reasoning effort at the top of the panel, using values reported by Codex. It retains the opt-in Python authoring mode introduced in 1.0.0: generate and execute UE Python in the open editor, inspect output and exceptions, back up declared content folders, and export reusable scripts.
+**Version 1.0.2** enables Python authoring by default, preserves the panel's ON/OFF selection across reconnects, new threads and Stop turn, and allows messages during a running turn with **Send update**. A dedicated activity label distinguishes processing from input readiness. The thread's resolved model and reasoning effort remain visible. Python authoring can generate and execute UE Python in the open editor, inspect output and exceptions, back up declared content folders, and export reusable scripts.
 
 日本語の操作・復元手順: [USAGE.ja.md](Docs/USAGE.ja.md).
 検証結果と限界: [VALIDATION.ja.md](Docs/VALIDATION.ja.md).
@@ -18,7 +18,7 @@ The bounded Editor tools and Python authoring have different permissions. Python
 - Uses custom Codex permission profiles whose only filesystem root is the current Unreal project, with tool network access disabled.
 - Requires the elevated Windows sandbox. If Codex cannot enforce the split read boundary, CinderLink fails closed before a prompt can be sent.
 - Project-file edits and allowlisted Editor actions are enabled by default. Their checkboxes persist after each prompt and can be cleared whenever a read-only turn is preferred.
-- Normal mode exposes a fixed set of bounded in-process Unreal Editor tools. Python authoring is a separate, default-off panel mode; it requires project edits and UE actions as well. Python may perform arbitrary host operations, including deletion, file access and network activity. The existing command sandbox is unchanged and does not sandbox Unreal.
+- The bounded mode exposes a fixed set of in-process Unreal Editor tools. Python authoring is a separate panel mode, enabled by default in 1.0.2; it requires project edits and UE actions as well. Python may perform arbitrary host operations, including deletion, file access and network activity. The existing command sandbox is unchanged and does not sandbox Unreal. Clear the Python checkbox to use only bounded tools.
 - The bounded PIE-start and viewport-capture tools retain visible per-call confirmation. Unattended sessions refuse those two tools. Arbitrary Python can perform equivalent operations, so this is not a restriction on authoring-mode scripts.
 - Enumerates configured MCP servers, disables them in the thread, and verifies that none expose tools before accepting a prompt. Apps, browser/computer control, plugins, hooks, image generation, and skill discovery are disabled at process startup.
 - Uses `approvalPolicy: never` and automatically declines every command, file, network, or filesystem escalation request. There is no approval button that can broaden the boundary.
@@ -77,9 +77,13 @@ CinderLink deliberately builds on the official [Codex App Server protocol](https
 5. Clear **Allow UE Editor actions** when a turn should inspect, but not change, the open level, assets, viewport, or PIE state. This is separate from direct Codex filesystem writes, although saving a level or importing an asset naturally makes Unreal write `.umap` or `.uasset` files inside the project.
 6. If CinderLink cannot verify the project boundary and disabled external tools, it remains disconnected and sends no prompt.
 
+## Messages during a turn
+
+While Codex is working, **Send update** delivers additional user input using the official [`turn/steer` API](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn), bound to the current thread and expected turn ID. The input stays visible and read-only until acknowledged. If delivery is rejected, it stays in the input box for manual retry; CinderLink never silently submits it as a new turn. Disconnecting before acknowledgement also leaves the draft. Steering does not change the turn's model, sandbox or permission snapshot. The header shows processing, sending, stopping and ready states. Transcript scrolling remains manual. Synchronous UE Python can still block the Editor UI until that call returns.
+
 ## Python authoring
 
-Enable **Enable Python authoring (Unreal host permissions)** before sending an authoring turn. The banner describes the broader boundary. The toggle stays on while working, but resets on disconnect, new thread, Stop turn, or disabling either edit permission. It cannot be enabled by the model or during an active turn. Turning it off revokes subsequent Python calls; an already executing script is not interrupted.
+**Enable Python authoring (Unreal host permissions)** starts checked in 1.0.2. The banner describes the broader boundary. While the panel stays open, its ON/OFF selection survives reconnects, new threads and Stop turn. Closing and reopening the panel starts with the default ON again; this is not a saved preference. Disabling either edit permission also turns Python off. Manual OFF is respected and is not automatically re-enabled by a new thread or reconnection. Python cannot be enabled by the model or during an active turn. Each submitted turn takes its own permission snapshot; stopping, disconnecting and finishing still revoke that turn's authority. Turning Python off revokes subsequent calls; an already executing script is not interrupted.
 
 | Tool | Behavior |
 | --- | --- |
@@ -121,7 +125,7 @@ This is Editor automation, not an Arrietty runtime dependency. CinderLink is not
 
 ## Release scope
 
-Version 1.0.0 adds explicitly enabled UE Python authoring, per-run source/results/backups, recipe export and offline recovery. It retains the 0.2.1 auto-connect behavior and persistent bounded-edit toggles. It does not add remote listeners, MCP configuration editing, automatic updates, analytics or credential management. Python authoring changes the host trust boundary openly; it is not an expansion of the Codex command permission profile.
+Version 1.0.0 introduced UE Python authoring, per-run source/results/backups, recipe export and offline recovery. Version 1.0.1 added resolved model/effort display. Version 1.0.2 changes the Python panel default to ON and retains the selection across connection and turn controls, at the user's request. It retains the 0.2.1 auto-connect behavior and persistent bounded-edit toggles. It does not add remote listeners, MCP configuration editing, automatic updates, analytics or credential management. Python authoring changes the host trust boundary openly; it is not an expansion of the Codex command permission profile.
 
 ## 日本語
 
@@ -129,7 +133,7 @@ CinderLinkは、Unreal Editor 5.8から公式Codex App Serverを利用するた�
 
 パネルを開くと自動接続します。初期状態では **Allow project file edits** と **Allow UE Editor actions** の両方が有効で、送信後もチェック状態を維持します。解析だけを行うターンでは、必要に応じて一方または両方を外してください。PIE開始とViewport画像送信には、チェック状態にかかわらず毎回Yes/No確認が表示されます。
 
-1.0.0 では、通常の UE 操作に加え、明示的に有効にする Python 制作モードを追加しました。コード保存・指定素材のバックアップ・実行・結果確認・再利用用スクリプト保存ができます。Python は UE Editor の権限で動き、プロジェクト外へのアクセスも可能です。通常の Codex のファイル制限は Python には適用されません。詳しくは [日本語ガイド](Docs/USAGE.ja.md) を参照してください。CinderLink は Editor 専用なので Shipping には入りません。
+1.0.2 では、Python 制作モードも初期状態で ON です。パネルを開いている間は、接続の切り替え・新規スレッド・Stop turn でも ON/OFF の選択を維持します。手動で OFF にした場合や、ファイル変更・UE 操作の許可を外した場合は無効です。コード保存・指定素材のバックアップ・実行・結果確認・再利用用スクリプト保存ができます。Python は UE Editor の権限で動き、プロジェクト外へのアクセスも可能です。通常の Codex のファイル制限は Python には適用されません。詳しくは [日本語ガイド](Docs/USAGE.ja.md) を参照してください。CinderLink は Editor 専用なので Shipping には入りません。
 
 Codex の通常ファイル操作は現在の Unreal プロジェクト内に限定し、外部 MCP・アプリ・ブラウザ操作などを無効化してから接続完了とします。追加権限の要求は拒否し、境界を確認できない場合はプロンプトを送らず停止します。Python 制作モードは別の実行経路であり、この制限による隔離を保証しません。Codex 子プロセスの環境から資格情報などを除外する従来の処理は維持します。
 

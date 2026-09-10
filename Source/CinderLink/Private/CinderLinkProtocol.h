@@ -19,7 +19,9 @@ enum class ECinderLinkMessageKind : uint8
     EditorAction,
     Warning,
     Error,
-    TurnCompleted
+    TurnCompleted,
+    UpdateAccepted,
+    UpdateRejected
 };
 
 struct FCinderLinkMessage
@@ -50,6 +52,10 @@ public:
         FString& OutError,
         bool bAllowPythonAuthoring = false);
     bool InterruptTurn(FString& OutError);
+    bool SteerTurn(const FString& Text, FString& OutError);
+    bool HasPendingUpdate() const { return !PendingSteerText.IsEmpty(); }
+    bool IsStopping() const { return bInterruptRequested; }
+    bool CanSteerTurn() const { return IsReady() && bTurnInProgress && !ActiveTurnId.IsEmpty() && !HasPendingUpdate() && !bInterruptRequested; }
     /** Revocation takes effect for subsequent tool calls in this turn. */
     void RevokePythonAuthoring() { bActiveTurnAllowsPythonAuthoring = false; }
 
@@ -70,6 +76,8 @@ public:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
     friend class FCinderLinkPythonTurnPolicyTest;
+    friend class FCinderLinkPythonPanelPolicyTest;
+    friend class FCinderLinkSteeringTest;
 #endif
     enum class EPendingRequest : uint8
     {
@@ -79,6 +87,7 @@ private:
         ThreadStart,
         ThreadMcpVerification,
         TurnStart,
+        TurnSteer,
         Interrupt
     };
 
@@ -114,11 +123,14 @@ private:
     FString ProjectRoot;
     FString ThreadId;
     FString ActiveTurnId;
+    FString PendingSteerText;
+    FString PendingSteerTurnId;
     FString Model;
     FString ReasoningEffort;
     FString ReroutedModel;
     TArray<FString> McpServerNames;
     bool bTurnInProgress = false;
+    bool bInterruptRequested = false;
     bool bReportedProcessExit = false;
     bool bReadPermissionProfileReady = false;
     bool bEditPermissionProfileReady = false;

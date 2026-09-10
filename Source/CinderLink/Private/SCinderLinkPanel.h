@@ -15,13 +15,18 @@ enum class ECheckBoxState : uint8;
 class SCinderLinkPanel final : public SCompoundWidget
 {
 public:
-    SLATE_BEGIN_ARGS(SCinderLinkPanel) {}
+    SLATE_BEGIN_ARGS(SCinderLinkPanel) : _AutoConnect(true) {}
+        SLATE_ARGUMENT(bool, AutoConnect)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs);
     virtual ~SCinderLinkPanel() override;
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+    friend class FCinderLinkPythonPanelPolicyTest;
+    friend class FCinderLinkSteeringTest;
+#endif
     FReply OnConnectClicked();
     FReply OnNewThreadClicked();
     FReply OnSendClicked();
@@ -38,6 +43,8 @@ private:
 
     FText GetConnectButtonText() const;
     FText GetStatusText() const;
+    FText GetActivityText() const;
+    FText GetSendButtonText() const;
     FText GetModelText() const;
     FText GetExecutableText() const;
     FText GetProjectText() const;
@@ -58,5 +65,6 @@ private:
     FString Transcript;
     FString StatusText = TEXT("Disconnected");
     int32 StreamingStartIndex = INDEX_NONE;
+    int32 StreamingTextLength = 0;
     bool bStatusError = false;
 };

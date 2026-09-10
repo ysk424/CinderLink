@@ -96,6 +96,9 @@ void FCinderLinkAppServerClient::Disconnect()
     ResetModelInfo();
     ActiveTurnId.Reset();
     ProjectRoot.Reset();
+    PendingSteerText.Reset();
+    PendingSteerTurnId.Reset();
+    bInterruptRequested = false;
     NextRequestId = 1;
     bTurnInProgress = false;
     bReportedProcessExit = false;
@@ -114,7 +117,7 @@ bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
         OutError = TEXT("Connect to Codex App Server first.");
         return false;
     }
-    if (bTurnInProgress)
+    if (bTurnInProgress || HasPendingUpdate())
     {
         OutError = TEXT("Stop the active turn before starting a new thread.");
         return false;
@@ -149,7 +152,7 @@ bool FCinderLinkAppServerClient::SendTurn(
         OutError = TEXT("CinderLink is not ready yet.");
         return false;
     }
-    if (bTurnInProgress)
+    if (bTurnInProgress || HasPendingUpdate())
     {
         OutError = TEXT("A turn is already running.");
         return false;
@@ -179,6 +182,7 @@ bool FCinderLinkAppServerClient::SendTurn(
     }
 
     bTurnInProgress = true;
+    bInterruptRequested = false;
     ActiveTurnId.Reset();
     ReroutedModel.Reset();
     bActiveTurnAllowsEditorActions = bAllowEditorActions;
@@ -193,6 +197,29 @@ bool FCinderLinkAppServerClient::SendTurn(
     return true;
 }
 
+bool FCinderLinkAppServerClient::SteerTurn(const FString& Text, FString& OutError)
+{
+    const FString Trimmed = Text.TrimStartAndEnd();
+    if (Trimmed.IsEmpty() || !CanSteerTurn())
+    {
+        OutError = TEXT("Enter a message and wait until the current turn is ready to receive an update.");
+        return false;
+    }
+
+    TSharedRef<FJsonObject> Params = MakeParams();
+    Params->SetStringField(TEXT("threadId"), ThreadId);
+    Params->SetStringField(TEXT("expectedTurnId"), ActiveTurnId);
+    TSharedRef<FJsonObject> Input = MakeShared<FJsonObject>();
+    Input->SetStringField(TEXT("type"), TEXT("text"));
+    Input->SetStringField(TEXT("text"), Trimmed);
+    Params->SetArrayField(TEXT("input"), {MakeShared<FJsonValueObject>(Input)});
+    // Steering must not alter the active turn's model, sandbox or permission snapshot.
+    if (SendRequest(TEXT("turn/steer"), Params, EPendingRequest::TurnSteer, OutError) == 0) return false;
+    PendingSteerText = Trimmed;
+    PendingSteerTurnId = ActiveTurnId;
+    return true;
+}
+
 bool FCinderLinkAppServerClient::InterruptTurn(FString& OutError)
 {
     RevokePythonAuthoring();
@@ -204,7 +231,8 @@ bool FCinderLinkAppServerClient::InterruptTurn(FString& OutError)
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetStringField(TEXT("threadId"), ThreadId);
-    return SendRequest(TEXT("turn/interrupt"), Params, EPendingRequest::Interrupt, OutError) != 0;
+    bInterruptRequested = SendRequest(TEXT("turn/interrupt"), Params, EPendingRequest::Interrupt, OutError) != 0;
+    return bInterruptRequested;
 }
 
 FString FCinderLinkAppServerClient::GetPermissionProfileName(bool bAllowProjectEdits)
@@ -246,6 +274,9 @@ bool FCinderLinkAppServerClient::Tick(float DeltaTime)
         RevokePythonAuthoring();
         ActiveTurnId.Reset();
         ThreadId.Reset();
+        PendingSteerText.Reset();
+        PendingSteerTurnId.Reset();
+        bInterruptRequested = false;
         PendingRequests.Reset();
         ResetModelInfo();
         Emit(ECinderLinkMessageKind::Error, TEXT("Codex App Server exited. Disconnect and reconnect to continue."));
@@ -299,7 +330,7 @@ void FCinderLinkAppServerClient::SendInitialize()
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.1"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.2"));
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetObjectField(TEXT("clientInfo"), ClientInfo);
@@ -363,8 +394,8 @@ void FCinderLinkAppServerClient::SendThreadStart()
     Params->SetArrayField(TEXT("runtimeWorkspaceRoots"), RuntimeRoots);
     Params->SetStringField(TEXT("serviceName"), TEXT("cinderlink"));
     Params->SetStringField(TEXT("developerInstructions"), TEXT(
-        "You are working inside CinderLink 1.0.1 in Unreal Editor. Use the supplied UE tools to inspect and edit the current project. "
-        "Python authoring requires the user to enable the panel mode. Check ue_python_status before using it. "
+        "You are working inside CinderLink 1.0.2 in Unreal Editor. Use the supplied UE tools to inspect and edit the current project. "
+        "Python authoring is enabled by default in the panel, but its actual permission is scoped to the submitted turn. Check ue_python_status before using it. "
         "Never bypass a disabled Python mode by creating startup scripts, console commands, launching another Unreal process or asking other tools to run Python. "
         "When authoring is enabled, use ue_python_execute for short UE Python batches. Declare all affected /Game directories in backup_paths, "
         "including external actor/object folders for World Partition. Inspect dependencies first. [] is only for inspection. "
@@ -427,16 +458,32 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
     const EPendingRequest Kind = *Pending;
     PendingRequests.Remove(Id);
 
+    if (Kind == EPendingRequest::TurnSteer)
+    {
+        TSharedPtr<FJsonObject> Result;
+        const bool bAccepted = !PendingSteerText.IsEmpty() &&
+            !Message->HasField(TEXT("error")) && GetObjectField(Message, TEXT("result"), Result) &&
+            ReadString(Result, TEXT("turnId")) == PendingSteerTurnId;
+        const FString SubmittedText = MoveTemp(PendingSteerText);
+        PendingSteerText.Reset();
+        PendingSteerTurnId.Reset();
+        Emit(bAccepted ? ECinderLinkMessageKind::UpdateAccepted : ECinderLinkMessageKind::UpdateRejected,
+            bAccepted ? SubmittedText : TEXT("Additional message was not accepted. Your text is still in the input box; send it again. The turn may have ended."));
+        return;
+    }
+
     TSharedPtr<FJsonObject> ErrorObject;
     if (GetObjectField(Message, TEXT("error"), ErrorObject))
     {
         bTurnInProgress = Kind == EPendingRequest::TurnStart ? false : bTurnInProgress;
         if (Kind == EPendingRequest::TurnStart)
         {
+            bInterruptRequested = false;
             bActiveTurnAllowsEditorActions = false;
             RevokePythonAuthoring();
             ActiveTurnId.Reset();
         }
+        if (Kind == EPendingRequest::Interrupt) bInterruptRequested = false;
         if (Kind != EPendingRequest::TurnStart && Kind != EPendingRequest::Interrupt)
         {
             bIsolationReady = false;
@@ -756,6 +803,7 @@ void FCinderLinkAppServerClient::HandleNotification(
         bActiveTurnAllowsEditorActions = false;
         RevokePythonAuthoring();
         ActiveTurnId.Reset();
+        bInterruptRequested = false;
         FString Status = TEXT("completed");
         if (Turn.IsValid())
         {

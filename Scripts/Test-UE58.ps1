@@ -69,11 +69,13 @@ $report = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
 $failed = @($report.tests | Where-Object { $_.state -ne 'Success' })
 $requiredTests = @(
     'CinderLink.Integration.AppServerHandshake',
+    'CinderLink.Protocol.Steering',
     'CinderLink.Security.EditProfile',
     'CinderLink.Security.EditorToolPolicy',
     'CinderLink.Security.ReadOnlyProfile',
     'CinderLink.Security.PythonAuthoringPolicy',
     'CinderLink.Security.PythonTurnRevocation',
+    'CinderLink.Security.PythonPanelPreference',
     'CinderLink.Python.ExecuteAndArchive',
     'CinderLink.Python.BackupAndDiskChanges',
     'CinderLink.Python.MaterialAuthoring',

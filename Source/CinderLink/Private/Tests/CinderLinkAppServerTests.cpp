@@ -469,7 +469,7 @@ bool FCinderLinkAppServerHandshakeTest::RunTest(const FString& Parameters)
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink_test"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink Test"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.1"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.2"));
     TSharedRef<FJsonObject> InitializeParams = MakeShared<FJsonObject>();
     InitializeParams->SetObjectField(TEXT("clientInfo"), ClientInfo);
     TSharedRef<FJsonObject> Capabilities = MakeShared<FJsonObject>();

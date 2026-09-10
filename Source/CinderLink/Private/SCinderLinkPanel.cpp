@@ -43,8 +43,17 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
-                .Text(LOCTEXT("Title", "CinderLink 1.0.1"))
+                .Text(LOCTEXT("Title", "CinderLink 1.0.2"))
                 .TextStyle(FAppStyle::Get(), TEXT("HeadingExtraSmall"))
+            ]
+
+            + SVerticalBox::Slot()
+            .AutoHeight()
+            .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+            [
+                SNew(STextBlock)
+                .Text(this, &SCinderLinkPanel::GetActivityText)
+                .AutoWrapText(true)
             ]
 
             + SVerticalBox::Slot()
@@ -141,6 +150,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
             .AutoHeight()
             [
                 SAssignNew(InputBox, SMultiLineEditableTextBox)
+                .IsReadOnly_Lambda([this]() { return Client && Client->HasPendingUpdate(); })
                 .AutoWrapText(true)
                 .HintText(LOCTEXT("InputHint", "Ask Codex to inspect or change this Unreal project..."))
             ]
@@ -189,12 +199,12 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     .Padding(0.0f, 5.0f, 0.0f, 0.0f)
                     [
                         SAssignNew(PythonAuthoringCheckBox, SCheckBox)
-                        .IsChecked(ECheckBoxState::Unchecked)
-                        .IsEnabled_Lambda([this]() { return Client && Client->IsReady() &&
+                        .IsChecked(ECheckBoxState::Checked)
+                        .IsEnabled_Lambda([this]() { return Client &&
                             (PythonAuthoringCheckBox->IsChecked() ||
                             (!Client->IsTurnInProgress() && AllowEditsCheckBox->IsChecked() && AllowEditorActionsCheckBox->IsChecked())); })
                         .OnCheckStateChanged(this, &SCinderLinkPanel::OnPythonAuthoringChanged)
-                        .ToolTipText(LOCTEXT("PythonTooltip", "Runs arbitrary Python with Unreal Editor's permissions, including host files and network. The Codex project sandbox does not apply. Enabled until you turn it off, disconnect or start a new thread. Stop turn cannot interrupt a running Python/native call."))
+                        .ToolTipText(LOCTEXT("PythonTooltip", "Enabled by default. Runs arbitrary Python with Unreal Editor's permissions, including host files and network. The Codex project sandbox does not apply. Your selection survives reconnect, new thread and Stop turn while this panel is open. Disabling either edit permission turns Python off. Stop turn revokes the current turn's permission but cannot interrupt a running Python/native call."))
                         [
                             SNew(STextBlock)
                             .AutoWrapText(true)
@@ -215,7 +225,8 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                 .AutoWidth()
                 [
                     SNew(SButton)
-                    .Text(LOCTEXT("Send", "Send"))
+                    .Text(this, &SCinderLinkPanel::GetSendButtonText)
+                    .ToolTipText(LOCTEXT("SendTooltip", "Send starts a new turn. Send update adds your message to the running turn without changing its permissions. Input is kept until Codex accepts the update."))
                     .IsEnabled(this, &SCinderLinkPanel::CanSend)
                     .OnClicked(this, &SCinderLinkPanel::OnSendClicked)
                 ]
@@ -227,7 +238,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
     {
         SetStatus(ExecutableError, true);
     }
-    else
+    else if (InArgs._AutoConnect)
     {
         OnConnectClicked();
     }
@@ -244,7 +255,7 @@ SCinderLinkPanel::~SCinderLinkPanel()
 
 FReply SCinderLinkPanel::OnConnectClicked()
 {
-    ResetPythonAuthoring();
+    Client->RevokePythonAuthoring();
     if (Client->IsProcessRunning())
     {
         Client->Disconnect();
@@ -276,7 +287,7 @@ FReply SCinderLinkPanel::OnConnectClicked()
 
 FReply SCinderLinkPanel::OnNewThreadClicked()
 {
-    ResetPythonAuthoring();
+    Client->RevokePythonAuthoring();
     FString Error;
     if (!Client->StartNewThread(Error))
     {
@@ -293,6 +304,12 @@ FReply SCinderLinkPanel::OnNewThreadClicked()
 FReply SCinderLinkPanel::OnSendClicked()
 {
     const FString Text = InputBox.IsValid() ? InputBox->GetText().ToString() : FString();
+    if (Client->IsTurnInProgress())
+    {
+        FString Error;
+        if (!Client->SteerTurn(Text, Error)) SetStatus(Error, true);
+        return FReply::Handled();
+    }
     const bool bAllowEdits = AllowEditsCheckBox.IsValid() && AllowEditsCheckBox->IsChecked();
     const bool bAllowEditorActions =
         AllowEditorActionsCheckBox.IsValid() && AllowEditorActionsCheckBox->IsChecked();
@@ -315,7 +332,6 @@ FReply SCinderLinkPanel::OnSendClicked()
 
 FReply SCinderLinkPanel::OnInterruptClicked()
 {
-    ResetPythonAuthoring();
     FString Error;
     if (!Client->InterruptTurn(Error))
     {
@@ -354,7 +370,7 @@ FText SCinderLinkPanel::GetModeText() const
 
 void SCinderLinkPanel::HandleMessage(const FCinderLinkMessage& Message)
 {
-    if (!Client->IsProcessRunning()) ResetPythonAuthoring();
+    if (!Client->IsProcessRunning()) Client->RevokePythonAuthoring();
     switch (Message.Kind)
     {
     case ECinderLinkMessageKind::Status:
@@ -364,19 +380,38 @@ void SCinderLinkPanel::HandleMessage(const FCinderLinkMessage& Message)
     case ECinderLinkMessageKind::AssistantDelta:
         if (StreamingStartIndex == INDEX_NONE)
         {
-            StreamingStartIndex = Transcript.Len();
             AppendTranscript(TEXT("Assistant: "));
+            StreamingStartIndex = Transcript.Len() - 11;
+            StreamingTextLength = 11;
         }
-        AppendTranscript(Message.Text);
+        Transcript.InsertAt(StreamingStartIndex + StreamingTextLength, Message.Text);
+        StreamingTextLength += Message.Text.Len();
+        AppendTranscript(FString());
         break;
 
     case ECinderLinkMessageKind::AssistantFinal:
-        if (StreamingStartIndex != INDEX_NONE && StreamingStartIndex <= Transcript.Len())
+        if (StreamingStartIndex != INDEX_NONE && StreamingStartIndex + StreamingTextLength <= Transcript.Len())
         {
-            Transcript.LeftInline(StreamingStartIndex, EAllowShrinking::No);
+            Transcript.RemoveAt(StreamingStartIndex, StreamingTextLength, EAllowShrinking::No);
+            Transcript.InsertAt(StreamingStartIndex, TEXT("Assistant: ") + Message.Text + TEXT("\n"));
+            AppendTranscript(FString());
         }
-        AppendTranscript(TEXT("Assistant: ") + Message.Text + TEXT("\n"));
+        else
+        {
+            AppendTranscript(TEXT("Assistant: ") + Message.Text + TEXT("\n"));
+        }
         StreamingStartIndex = INDEX_NONE;
+        break;
+
+    case ECinderLinkMessageKind::UpdateAccepted:
+        AppendTranscript(TEXT("\nYou (update): ") + Message.Text + TEXT("\n"));
+        if (InputBox.IsValid()) InputBox->SetText(FText::GetEmpty());
+        SetStatus(TEXT("Additional message accepted by Codex."));
+        break;
+
+    case ECinderLinkMessageKind::UpdateRejected:
+        SetStatus(Message.Text, true);
+        AppendTranscript(TEXT("\n[Update not sent] ") + Message.Text + TEXT("\n"));
         break;
 
     case ECinderLinkMessageKind::Command:
@@ -449,6 +484,22 @@ FText SCinderLinkPanel::GetStatusText() const
     return FText::FromString(StatusText);
 }
 
+FText SCinderLinkPanel::GetActivityText() const
+{
+    if (!Client || !Client->IsProcessRunning()) return LOCTEXT("ActivityDisconnected", "Disconnected");
+    if (Client->HasPendingUpdate()) return LOCTEXT("ActivitySendingUpdate", "Sending update... waiting for Codex to accept it");
+    if (Client->IsStopping()) return LOCTEXT("ActivityStopping", "Stopping... waiting for the current turn to finish");
+    if (Client->IsTurnInProgress()) return LOCTEXT("ActivityRunning", "Processing... you can send an update below");
+    if (Client->IsReady()) return LOCTEXT("ActivityReady", "Ready for your message");
+    return LOCTEXT("ActivityConnecting", "Connecting...");
+}
+
+FText SCinderLinkPanel::GetSendButtonText() const
+{
+    if (Client && Client->HasPendingUpdate()) return LOCTEXT("SendingUpdate", "Sending...");
+    return Client && Client->IsTurnInProgress() ? LOCTEXT("SendUpdate", "Send update") : LOCTEXT("Send", "Send");
+}
+
 FText SCinderLinkPanel::GetModelText() const
 {
     if (!Client || !Client->IsProcessRunning())
@@ -488,12 +539,13 @@ FText SCinderLinkPanel::GetProjectText() const
 
 bool SCinderLinkPanel::CanSend() const
 {
-    return Client && Client->IsReady() && !Client->IsTurnInProgress();
+    return Client && Client->IsReady() && !Client->HasPendingUpdate() &&
+        (!Client->IsTurnInProgress() || Client->CanSteerTurn());
 }
 
 bool SCinderLinkPanel::CanStartNewThread() const
 {
-    return Client && Client->IsReady() && !Client->IsTurnInProgress();
+    return Client && Client->IsReady() && !Client->IsTurnInProgress() && !Client->HasPendingUpdate();
 }
 
 bool SCinderLinkPanel::CanInterrupt() const
