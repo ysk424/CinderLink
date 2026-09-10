@@ -2,7 +2,12 @@
 
 CinderLink is a local-first, auditable AI agent panel for Unreal Editor 5.8 on Windows. It connects the editor to the official Codex App Server over private standard input/output pipes. It does not open a listening port, ship a runtime script, collect telemetry, or operate a CinderLink server.
 
-> **Early preview:** CinderLink is security-oriented, but no software can promise absolute safety. Review the source, read the threat model, and keep backups or version control for every Unreal project.
+**Version 1.0.0** adds an opt-in Python authoring mode: generate and execute UE Python in the open editor, inspect output and exceptions, back up declared content folders, and export reusable scripts.
+
+日本語の操作・復元手順: [USAGE.ja.md](Docs/USAGE.ja.md).
+検証結果と限界: [VALIDATION.ja.md](Docs/VALIDATION.ja.md).
+
+The bounded Editor tools and Python authoring have different permissions. Python runs inside Unreal Editor with its host permissions; it is not confined by the Codex command sandbox. See the [threat model](THREAT_MODEL.md).
 
 ## Security boundaries and operational defaults
 
@@ -13,12 +18,12 @@ CinderLink is a local-first, auditable AI agent panel for Unreal Editor 5.8 on W
 - Uses custom Codex permission profiles whose only filesystem root is the current Unreal project, with tool network access disabled.
 - Requires the elevated Windows sandbox. If Codex cannot enforce the split read boundary, CinderLink fails closed before a prompt can be sent.
 - Project-file edits and allowlisted Editor actions are enabled by default. Their checkboxes persist after each prompt and can be cleared whenever a read-only turn is preferred.
-- Exposes only a fixed set of in-process Unreal Editor tools. It has no arbitrary Python, Blueprint, or console-command execution and no actor-deletion, asset-deletion, or overwrite tool.
-- Requires an additional visible Yes/No confirmation before starting PIE or capturing and sending a viewport image. Unattended sessions refuse both actions.
+- Normal mode exposes a fixed set of bounded in-process Unreal Editor tools. Python authoring is a separate, default-off panel mode; it requires project edits and UE actions as well. Python may perform arbitrary host operations, including deletion, file access and network activity. The existing command sandbox is unchanged and does not sandbox Unreal.
+- The bounded PIE-start and viewport-capture tools retain visible per-call confirmation. Unattended sessions refuse those two tools. Arbitrary Python can perform equivalent operations, so this is not a restriction on authoring-mode scripts.
 - Enumerates configured MCP servers, disables them in the thread, and verifies that none expose tools before accepting a prompt. Apps, browser/computer control, plugins, hooks, image generation, and skill discovery are disabled at process startup.
 - Uses `approvalPolicy: never` and automatically declines every command, file, network, or filesystem escalation request. There is no approval button that can broaden the boundary.
 - Stops the Codex process tree when the panel disconnects or Unreal Editor exits.
-- Does not write conversation content to Unreal logs.
+- Does not log raw conversation messages. Python source/results are archived locally; script output and exceptions can also appear in Unreal's own logs.
 
 See [THREAT_MODEL.md](THREAT_MODEL.md) for boundaries and residual risks.
 
@@ -56,7 +61,7 @@ Run the repository audit, package build, and Unreal automation suite together wi
 ./Scripts/Test-UE58.ps1
 ```
 
-The integration test starts the real local App Server using harmless canaries. It verifies the sanitized child environment, project-only read boundary, disabled MCP state, built-in Editor tool policy, and acceptance of the dynamic tool schema. It does not send a model prompt.
+The integration test starts the real local App Server using harmless canaries. It verifies the sanitized child environment, project-only command read boundary, disabled MCP state, built-in Editor tool policy, and acceptance of the dynamic tool schema. Python tests execute real scripts, create and modify a material, verify backups, export recipes, and check exception evidence. The suite does not send a model prompt.
 
 ## Upstream security mechanisms
 
@@ -71,13 +76,39 @@ CinderLink deliberately builds on the official [Codex App Server protocol](https
 5. Clear **Allow UE Editor actions** when a turn should inspect, but not change, the open level, assets, viewport, or PIE state. This is separate from direct Codex filesystem writes, although saving a level or importing an asset naturally makes Unreal write `.umap` or `.uasset` files inside the project.
 6. If CinderLink cannot verify the project boundary and disabled external tools, it remains disconnected and sends no prompt.
 
+## Python authoring
+
+Enable **Enable Python authoring (Unreal host permissions)** before sending an authoring turn. The banner describes the broader boundary. The toggle stays on while working, but resets on disconnect, new thread, Stop turn, or disabling either edit permission. It cannot be enabled by the model or during an active turn. Turning it off revokes subsequent Python calls; an already executing script is not interrupted.
+
+| Tool | Behavior |
+| --- | --- |
+| `ue_python_status` | Read Python availability and active-turn authoring permission. |
+| `ue_python_execute` | Archive source, snapshot declared content directories, execute UE Python, return output/errors and disk changes. |
+| `ue_python_get_run` | Read a previous result by run ID, including after authoring is disabled. |
+| `ue_python_save_recipe` | Copy the exact archived script into `Scripts/CinderLink/<name>.py`; refuse overwrite or an altered archive. |
+
+Execution arguments are `label`, `code` and `backup_paths`. Example backup paths: `["/Game/Row/Lookdev"]`; use `[]` only for inspection. Declare all affected folders, including shared dependencies and World Partition external actor/object directories. This declaration is a backup request, not a Python access restriction. Dirty packages in those folders must be saved or reverted first. Backup failure prevents execution. Each call is limited to 128 Ki characters of source and 1 GiB / 10,000 existing backup files.
+
+Every run gets `Saved/CinderLink/Python/<run-id>/script.py`, `result.json`, and `backup/Content/...`. Source and backup metadata are written before execution; status distinguishes prepared, running, completed and failed. Output and error text are bounded to about 32 Ki characters each. Exact code can be exported as a recipe for Git review. Generated assets and private run archives do not belong in this plugin repository.
+
+Python runs on Unreal's game thread using the official Python Editor Script Plugin. Private execution scope separates globals; it is **not a security sandbox**. Keep calls short and finite. There is no hard timeout, forced cancellation, automatic rollback, or guarantee that Undo covers asset saves. Failed scripts may leave partial changes. Do not use persistent callbacks, background work, host secrets, unrelated files, hardware or network in authoring scripts. These instructions are not a technical barrier to arbitrary Python. PIE/Simulate must be stopped before using the execution tool.
+
+To recover recorded disk changes, close Unreal Editor and use the bundled helper:
+
+```powershell
+./Scripts/Restore-PythonRun.ps1 -ProjectRoot 'C:/path/to/UnrealProject' -RunId '<run-id>'
+# Inspect the preview, then add -Apply to restore.
+```
+
+The helper validates paths and backup hashes, preserves current files before restoration, and archives files that this run recorded as newly created. It does not recover unsaved state, undeclared dependencies, unrecorded new files after a crash, or arbitrary host side effects. See the [Japanese guide](Docs/USAGE.ja.md) for the full workflow.
+
 The model request itself is sent by the official Codex client to the configured OpenAI service. Files read into model context can therefore leave the PC as part of that request. CinderLink's boundary is designed to prevent agent tools from reading unrelated host files and environment credentials; it does not make model use offline and it cannot restrict the trusted official Codex executable itself. Do not place secrets inside the Unreal project.
 
 ## Built-in Unreal Editor actions
 
 Read-only calls can inspect Editor/PIE state, list and inspect actors, query `/Game` assets, and run Map Check. While the Editor-actions checkbox is enabled (the default), Codex may create/load/save `/Game` levels, spawn or update actors, set the level GameMode, import a project-local image as a new asset, move the viewport camera, capture the viewport, and start/stop PIE. Changes use Unreal transactions where applicable.
 
-Creation and update are deliberately bounded: levels and assets stay under `/Game`, existing assets are not replaced, image sources must be real project-local files of an allowlisted type, sensitive-named actor properties are hidden, and no delete primitive exists. Viewport capture sends an image to the configured model only after a separate visible confirmation. PIE start has the same confirmation because Arrietty runtime code can access BLE, VR, ESP32, audio, or network services.
+The original creation/update tools remain bounded: levels and assets stay under `/Game`, image import never replaces assets, image sources must be real project-local files of an allowlisted type, sensitive-named actor properties are hidden, and no bounded delete primitive exists. These limits do not apply to arbitrary authoring Python. Viewport capture and PIE-start tools retain their separate confirmation.
 
 The App Server's client-defined `dynamicTools` and `item/tool/call` interfaces used for these actions are currently experimental upstream. CinderLink validates the active thread and turn, executes calls only on Unreal's game thread, and rejects unknown tool names.
 
@@ -89,7 +120,7 @@ This is Editor automation, not an Arrietty runtime dependency. CinderLink is not
 
 ## Release scope
 
-Version 0.2 adds the bounded Unreal Editor bridge to the original conversation streaming, new-thread, interruption, project read/edit modes, sanitized process launch, fail-closed permission handling, and selected command/file status events. Version 0.2.1 automatically connects when the panel opens and keeps both bounded edit toggles enabled by default. CinderLink intentionally omits approval-based escalation, arbitrary shell shortcuts, arbitrary Editor scripting, remote listeners, MCP configuration editing, automatic update code, analytics, and credential management.
+Version 1.0.0 adds explicitly enabled UE Python authoring, per-run source/results/backups, recipe export and offline recovery. It retains the 0.2.1 auto-connect behavior and persistent bounded-edit toggles. It does not add remote listeners, MCP configuration editing, automatic updates, analytics or credential management. Python authoring changes the host trust boundary openly; it is not an expansion of the Codex command permission profile.
 
 ## 日本語
 
@@ -97,9 +128,9 @@ CinderLinkは、Unreal Editor 5.8から公式Codex App Serverを利用するた�
 
 パネルを開くと自動接続します。初期状態では **Allow project file edits** と **Allow UE Editor actions** の両方が有効で、送信後もチェック状態を維持します。解析だけを行うターンでは、必要に応じて一方または両方を外してください。PIE開始とViewport画像送信には、チェック状態にかかわらず毎回Yes/No確認が表示されます。
 
-UE操作はプラグイン内に固定実装した許可リストだけです。任意Python、任意Console Command、Actor/Asset削除、既存Assetの上書きは公開していません。Arrietty-UEでは通常のActorに加えて、Cesium Georeferenceや3D Tilesetの公開された編集可能プロパティも読み取り・設定できます。CinderLinkはEditor専用なのでShippingには入りません。
+1.0.0 では、通常の UE 操作に加え、明示的に有効にする Python 制作モードを追加しました。コード保存・指定素材のバックアップ・実行・結果確認・再利用用スクリプト保存ができます。Python は UE Editor の権限で動き、プロジェクト外へのアクセスも可能です。通常の Codex のファイル制限は Python には適用されません。詳しくは [日本語ガイド](Docs/USAGE.ja.md) を参照してください。CinderLink は Editor 専用なので Shipping には入りません。
 
-アクセス可能なファイルを現在のUnrealプロジェクト内に限定し、外部MCP・アプリ・ブラウザ操作・プラグインなどを無効化してから接続完了とします。追加権限の要求はすべて拒否し、境界を確認できない場合はプロンプトを送らず停止します。Codexへ渡す子プロセス環境からAPIキー、GitHubトークン、クラウド資格情報などを除外します。
+Codex の通常ファイル操作は現在の Unreal プロジェクト内に限定し、外部 MCP・アプリ・ブラウザ操作などを無効化してから接続完了とします。追加権限の要求は拒否し、境界を確認できない場合はプロンプトを送らず停止します。Python 制作モードは別の実行経路であり、この制限による隔離を保証しません。Codex 子プロセスの環境から資格情報などを除外する従来の処理は維持します。
 
 ただし、AIが読んだプロジェクト内ファイルは、通常のモデルリクエストの一部としてPC外へ送信され得ます。また、公式Codex実行ファイル、OS、Unreal Editor、接続先サービスは信頼する設計です。Unrealプロジェクト内にも秘密情報を置かないでください。
 

@@ -2,6 +2,7 @@
 // Copyright 2026 ysk424 and CinderLink contributors
 
 #include "CinderLinkEditorTools.h"
+#include "CinderLinkPythonTools.h"
 
 #include "AssetToolsModule.h"
 #include "AutomatedAssetImportData.h"
@@ -1555,17 +1556,18 @@ TArray<TSharedPtr<FJsonValue>> FCinderLinkEditorTools::BuildToolSpecs()
         TEXT("ue_pie_stop"),
         TEXT("Stop the active Play In Editor session. Requires Allow UE Editor actions."),
         ObjectSchema(MakeShared<FJsonObject>())));
+    Tools.Append(FCinderLinkPythonTools::BuildToolSpecs());
     return Tools;
 }
 
 bool FCinderLinkEditorTools::IsKnownTool(const FString& ToolName)
 {
-    return ReadTools().Contains(ToolName) || MutationTools().Contains(ToolName);
+    return ReadTools().Contains(ToolName) || MutationTools().Contains(ToolName) || FCinderLinkPythonTools::IsKnownTool(ToolName);
 }
 
 bool FCinderLinkEditorTools::IsMutationTool(const FString& ToolName)
 {
-    return MutationTools().Contains(ToolName);
+    return MutationTools().Contains(ToolName) || FCinderLinkPythonTools::IsMutationTool(ToolName);
 }
 
 TSharedRef<FJsonObject> FCinderLinkEditorTools::Execute(
@@ -1573,7 +1575,8 @@ TSharedRef<FJsonObject> FCinderLinkEditorTools::Execute(
     const TSharedPtr<FJsonObject>& Arguments,
     const FString& ProjectRoot,
     bool bAllowEditorActions,
-    FString& OutSummary)
+    FString& OutSummary,
+    bool bAllowPythonAuthoring)
 {
     if (!IsKnownTool(ToolName))
     {
@@ -1586,6 +1589,12 @@ TSharedRef<FJsonObject> FCinderLinkEditorTools::Execute(
     if (!IsInGameThread())
     {
         return Failure(TEXT("UE Editor tools must execute on the game thread."), OutSummary);
+    }
+
+    if (FCinderLinkPythonTools::IsKnownTool(ToolName))
+    {
+        auto Payload = FCinderLinkPythonTools::Execute(ToolName, Arguments, ProjectRoot, bAllowPythonAuthoring, OutSummary);
+        return MakeResponse(Payload->GetBoolField(TEXT("success")), Payload);
     }
 
     if (ToolName == TEXT("ue_editor_get_state")) return ExecuteGetState(OutSummary);

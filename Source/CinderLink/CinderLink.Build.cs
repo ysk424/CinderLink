@@ -26,6 +26,7 @@ public class CinderLink : ModuleRules
                 "Json",
                 "LevelEditor",
                 "Projects",
+                "PythonScriptPlugin",
                 "Slate",
                 "SlateCore",
                 "ToolMenus",

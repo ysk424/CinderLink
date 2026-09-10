@@ -47,8 +47,11 @@ public:
         const FString& Text,
         bool bAllowProjectEdits,
         bool bAllowEditorActions,
-        FString& OutError);
+        FString& OutError,
+        bool bAllowPythonAuthoring = false);
     bool InterruptTurn(FString& OutError);
+    /** Revocation takes effect for subsequent tool calls in this turn. */
+    void RevokePythonAuthoring() { bActiveTurnAllowsPythonAuthoring = false; }
 
     bool IsProcessRunning() const { return Process.IsRunning(); }
     bool IsReady() const { return Process.IsRunning() && !ThreadId.IsEmpty() && bIsolationReady; }
@@ -62,6 +65,9 @@ public:
     static TSharedRef<FJsonObject> BuildIsolationConfig(const TArray<FString>& McpServerNames);
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+    friend class FCinderLinkPythonTurnPolicyTest;
+#endif
     enum class EPendingRequest : uint8
     {
         Initialize,
@@ -110,4 +116,5 @@ private:
     bool bEditPermissionProfileReady = false;
     bool bIsolationReady = false;
     bool bActiveTurnAllowsEditorActions = false;
+    bool bActiveTurnAllowsPythonAuthoring = false;
 };

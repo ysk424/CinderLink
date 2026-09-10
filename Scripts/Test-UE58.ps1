@@ -3,7 +3,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$EngineRoot = 'C:\Program Files\Epic Games\UE_5.8'
+    [string]$EngineRoot = 'C:\Program Files\Epic Games\UE_5.8',
+    [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,17 +14,26 @@ $artifactRoot = Join-Path $repositoryRoot 'BuildArtifacts'
 $testHostRoot = Join-Path $artifactRoot 'TestHost'
 $testProject = Join-Path $testHostRoot 'TestHost.uproject'
 $testPluginRoot = Join-Path $testHostRoot 'Plugins\CinderLink'
-$reportRoot = Join-Path $artifactRoot 'TestReport'
+$reportRoot = Join-Path $artifactRoot ('TestReport-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmss') + '-' + [Guid]::NewGuid().ToString('N'))
 
 if (-not (Test-Path -LiteralPath $editor -PathType Leaf)) {
     throw "UnrealEditor-Cmd.exe was not found under: $EngineRoot"
 }
 
-& (Join-Path $PSScriptRoot 'Build-UE58.ps1') -EngineRoot $EngineRoot
+if (-not $SkipBuild) {
+    & (Join-Path $PSScriptRoot 'Build-UE58.ps1') -EngineRoot $EngineRoot
+}
 
 New-Item -ItemType Directory -Path $testHostRoot -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $testHostRoot 'Content') -Force | Out-Null
 if (Test-Path -LiteralPath $testPluginRoot) {
+    $resolvedHost = (Resolve-Path -LiteralPath $testHostRoot).Path.TrimEnd('\')
+    $resolvedPlugin = (Resolve-Path -LiteralPath $testPluginRoot).Path.TrimEnd('\')
+    if ($resolvedHost -ne [IO.Path]::GetFullPath((Join-Path $repositoryRoot 'BuildArtifacts\TestHost')) -or
+        $resolvedPlugin -ne (Join-Path $resolvedHost 'Plugins\CinderLink')) { throw 'Unexpected test plugin removal target.' }
+    $links = @(Get-Item -LiteralPath $testHostRoot, (Split-Path -Parent $testPluginRoot), $testPluginRoot -Force;
+        Get-ChildItem -LiteralPath $testPluginRoot -Recurse -Force) | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }
+    if (@($links).Count) { throw 'A reparse point exists in the test plugin removal path.' }
     Remove-Item -LiteralPath $testPluginRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Path (Split-Path -Parent $testPluginRoot) -Force | Out-Null
@@ -44,10 +54,6 @@ $projectDefinition = [ordered]@{
 }
 $projectDefinition | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $testProject -Encoding utf8NoBOM
 
-if (Test-Path -LiteralPath $reportRoot) {
-    Remove-Item -LiteralPath $reportRoot -Recurse -Force
-}
-
 & $editor $testProject '-unattended' '-nop4' '-nosplash' '-NullRHI' `
     '-ExecCmds=Automation RunTests CinderLink;Quit' `
     '-TestExit=Automation Test Queue Empty' `
@@ -65,7 +71,13 @@ $requiredTests = @(
     'CinderLink.Integration.AppServerHandshake',
     'CinderLink.Security.EditProfile',
     'CinderLink.Security.EditorToolPolicy',
-    'CinderLink.Security.ReadOnlyProfile'
+    'CinderLink.Security.ReadOnlyProfile',
+    'CinderLink.Security.PythonAuthoringPolicy',
+    'CinderLink.Security.PythonTurnRevocation',
+    'CinderLink.Python.ExecuteAndArchive',
+    'CinderLink.Python.BackupAndDiskChanges',
+    'CinderLink.Python.MaterialAuthoring',
+    'CinderLink.Python.ExceptionEvidence'
 )
 $reportedTests = @($report.tests | ForEach-Object { $_.fullTestPath })
 $missing = @($requiredTests | Where-Object { $_ -notin $reportedTests })

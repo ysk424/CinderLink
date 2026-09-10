@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-CinderLink is an early preview. Security fixes are applied to the latest release and the default branch.
+CinderLink 1.0.0 introduces explicit Python authoring. Security fixes are applied to the latest release and the default branch.
 
 ## Reporting a vulnerability
 
@@ -27,3 +27,5 @@ If you suspect credential exposure:
 ## Security promises and non-promises
 
 CinderLink does not intentionally collect telemetry or upload host information. Its source is designed to avoid credential inheritance, inbound listeners, hidden persistence, external agent tools, and permission escalation. It cannot guarantee the behavior of Unreal Engine, the trusted Codex CLI, operating-system components, models, dependencies, or commands operating inside the selected project profile.
+
+Python authoring is a separately enabled execution mode with Unreal Editor's host permissions. It is not covered by the Codex filesystem/network sandbox and can perform arbitrary host operations. The default-off toggle, local source/result archives and declared-content backups make this choice visible and aid recovery; they do not sandbox code or guarantee complete rollback. See `THREAT_MODEL.md` and `Docs/USAGE.ja.md`.

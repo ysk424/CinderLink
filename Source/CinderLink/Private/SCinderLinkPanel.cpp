@@ -43,7 +43,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
             .Padding(0.0f, 0.0f, 0.0f, 6.0f)
             [
                 SNew(STextBlock)
-                .Text(LOCTEXT("Title", "CinderLink"))
+                .Text(LOCTEXT("Title", "CinderLink 1.0.0"))
                 .TextStyle(FAppStyle::Get(), TEXT("HeadingExtraSmall"))
             ]
 
@@ -57,9 +57,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                 [
                     SNew(STextBlock)
                     .AutoWrapText(true)
-                    .Text(LOCTEXT(
-                        "SecurityBanner",
-                        "Project-only filesystem · built-in UE tools only · no external tools · no escalation"))
+                    .Text(this, &SCinderLinkPanel::GetModeText)
                 ]
             ]
 
@@ -152,6 +150,7 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     [
                         SAssignNew(AllowEditsCheckBox, SCheckBox)
                         .IsChecked(ECheckBoxState::Checked)
+                        .OnCheckStateChanged(this, &SCinderLinkPanel::OnEditPermissionChanged)
                         .ToolTipText(LOCTEXT(
                             "AllowEditsTooltip",
                             "Enabled by default. Turns may write only inside the current project root; clear this for read-only project access."))
@@ -166,12 +165,30 @@ void SCinderLinkPanel::Construct(const FArguments& InArgs)
                     [
                         SAssignNew(AllowEditorActionsCheckBox, SCheckBox)
                         .IsChecked(ECheckBoxState::Checked)
+                        .OnCheckStateChanged(this, &SCinderLinkPanel::OnEditPermissionChanged)
                         .ToolTipText(LOCTEXT(
                             "AllowEditorActionsTooltip",
                             "Enabled by default. Turns may call CinderLink's allowlisted Unreal Editor actions; clear this for read-only Editor access. PIE start and image sending still require visible confirmation."))
                         [
                             SNew(STextBlock)
                             .Text(LOCTEXT("AllowEditorActions", "Allow UE Editor actions"))
+                        ]
+                    ]
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 5.0f, 0.0f, 0.0f)
+                    [
+                        SAssignNew(PythonAuthoringCheckBox, SCheckBox)
+                        .IsChecked(ECheckBoxState::Unchecked)
+                        .IsEnabled_Lambda([this]() { return Client && Client->IsReady() &&
+                            (PythonAuthoringCheckBox->IsChecked() ||
+                            (!Client->IsTurnInProgress() && AllowEditsCheckBox->IsChecked() && AllowEditorActionsCheckBox->IsChecked())); })
+                        .OnCheckStateChanged(this, &SCinderLinkPanel::OnPythonAuthoringChanged)
+                        .ToolTipText(LOCTEXT("PythonTooltip", "Runs arbitrary Python with Unreal Editor's permissions, including host files and network. The Codex project sandbox does not apply. Enabled until you turn it off, disconnect or start a new thread. Stop turn cannot interrupt a running Python/native call."))
+                        [
+                            SNew(STextBlock)
+                            .AutoWrapText(true)
+                            .Text(LOCTEXT("PythonAuthoring", "Enable Python authoring (Unreal host permissions)"))
                         ]
                     ]
                 ]
@@ -217,6 +234,7 @@ SCinderLinkPanel::~SCinderLinkPanel()
 
 FReply SCinderLinkPanel::OnConnectClicked()
 {
+    ResetPythonAuthoring();
     if (Client->IsProcessRunning())
     {
         Client->Disconnect();
@@ -248,6 +266,7 @@ FReply SCinderLinkPanel::OnConnectClicked()
 
 FReply SCinderLinkPanel::OnNewThreadClicked()
 {
+    ResetPythonAuthoring();
     FString Error;
     if (!Client->StartNewThread(Error))
     {
@@ -269,7 +288,8 @@ FReply SCinderLinkPanel::OnSendClicked()
         AllowEditorActionsCheckBox.IsValid() && AllowEditorActionsCheckBox->IsChecked();
 
     FString Error;
-    if (!Client->SendTurn(Text, bAllowEdits, bAllowEditorActions, Error))
+    const bool bPython = PythonAuthoringCheckBox.IsValid() && PythonAuthoringCheckBox->IsChecked();
+    if (!Client->SendTurn(Text, bAllowEdits, bAllowEditorActions, Error, bPython))
     {
         SetStatus(Error, true);
         return FReply::Handled();
@@ -285,6 +305,7 @@ FReply SCinderLinkPanel::OnSendClicked()
 
 FReply SCinderLinkPanel::OnInterruptClicked()
 {
+    ResetPythonAuthoring();
     FString Error;
     if (!Client->InterruptTurn(Error))
     {
@@ -293,8 +314,37 @@ FReply SCinderLinkPanel::OnInterruptClicked()
     return FReply::Handled();
 }
 
+void SCinderLinkPanel::ResetPythonAuthoring()
+{
+    if (PythonAuthoringCheckBox.IsValid()) PythonAuthoringCheckBox->SetIsChecked(ECheckBoxState::Unchecked);
+    if (Client) Client->RevokePythonAuthoring();
+}
+
+void SCinderLinkPanel::OnPythonAuthoringChanged(ECheckBoxState State)
+{
+    if (State != ECheckBoxState::Checked)
+    {
+        Client->RevokePythonAuthoring();
+        return;
+    }
+    AppendTranscript(TEXT("\n[Python authoring ON] Scripts run with Unreal Editor's host permissions. They can access files and network outside the Codex sandbox. Declared content is backed up on disk; other effects and unsaved state are not covered. Keep scripts short: a running call cannot be forcibly stopped.\n"));
+}
+
+void SCinderLinkPanel::OnEditPermissionChanged(ECheckBoxState State)
+{
+    if (State != ECheckBoxState::Checked) ResetPythonAuthoring();
+}
+
+FText SCinderLinkPanel::GetModeText() const
+{
+    return PythonAuthoringCheckBox.IsValid() && PythonAuthoringCheckBox->IsChecked()
+        ? LOCTEXT("PythonModeBanner", "PYTHON AUTHORING ON — Python has Unreal Editor's host permissions, including files and network outside the project. Scripts and declared backups are saved locally. Stop turn cannot interrupt a running Python call.")
+        : LOCTEXT("BoundedModeBanner", "Python authoring OFF · Codex files are project-scoped · bounded UE tools · external agent tools disabled");
+}
+
 void SCinderLinkPanel::HandleMessage(const FCinderLinkMessage& Message)
 {
+    if (!Client->IsProcessRunning()) ResetPythonAuthoring();
     switch (Message.Kind)
     {
     case ECinderLinkMessageKind::Status:

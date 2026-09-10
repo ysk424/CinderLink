@@ -19,7 +19,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 bool FCinderLinkEditorToolPolicyTest::RunTest(const FString& Parameters)
 {
     const TArray<TSharedPtr<FJsonValue>> Specs = FCinderLinkEditorTools::BuildToolSpecs();
-    TestEqual(TEXT("The bounded Editor tool set is present"), Specs.Num(), 16);
+    TestEqual(TEXT("Editor and authoring tool schemas are present"), Specs.Num(), 20);
 
     TSet<FString> Names;
     for (const TSharedPtr<FJsonValue>& Value : Specs)
@@ -41,7 +41,8 @@ bool FCinderLinkEditorToolPolicyTest::RunTest(const FString& Parameters)
     TestTrue(TEXT("Read-only state tool is known"), FCinderLinkEditorTools::IsKnownTool(TEXT("ue_editor_get_state")));
     TestFalse(TEXT("Read-only state tool is not a mutation"), FCinderLinkEditorTools::IsMutationTool(TEXT("ue_editor_get_state")));
     TestTrue(TEXT("Level save is a gated mutation"), FCinderLinkEditorTools::IsMutationTool(TEXT("ue_level_save")));
-    TestFalse(TEXT("Arbitrary Python is not exposed"), FCinderLinkEditorTools::IsKnownTool(TEXT("execute_python")));
+    TestFalse(TEXT("Unregistered Python tool names are rejected"), FCinderLinkEditorTools::IsKnownTool(TEXT("execute_python")));
+    TestTrue(TEXT("Authoring is a separately gated mutation"), FCinderLinkEditorTools::IsMutationTool(TEXT("ue_python_execute")));
     TestFalse(TEXT("Actor deletion is not exposed"), FCinderLinkEditorTools::IsKnownTool(TEXT("ue_level_delete_actor")));
 
     FString Summary;

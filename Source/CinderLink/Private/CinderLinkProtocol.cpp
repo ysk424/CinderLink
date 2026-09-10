@@ -103,6 +103,7 @@ void FCinderLinkAppServerClient::Disconnect()
     bEditPermissionProfileReady = false;
     bIsolationReady = false;
     bActiveTurnAllowsEditorActions = false;
+    RevokePythonAuthoring();
 }
 
 bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
@@ -122,6 +123,7 @@ bool FCinderLinkAppServerClient::StartNewThread(FString& OutError)
     ActiveTurnId.Reset();
     bIsolationReady = false;
     bActiveTurnAllowsEditorActions = false;
+    RevokePythonAuthoring();
     SendThreadStart();
     return true;
 }
@@ -130,7 +132,8 @@ bool FCinderLinkAppServerClient::SendTurn(
     const FString& Text,
     bool bAllowProjectEdits,
     bool bAllowEditorActions,
-    FString& OutError)
+    FString& OutError,
+    bool bAllowPythonAuthoring)
 {
     FString Trimmed = Text;
     Trimmed.TrimStartAndEndInline();
@@ -176,17 +179,20 @@ bool FCinderLinkAppServerClient::SendTurn(
     bTurnInProgress = true;
     ActiveTurnId.Reset();
     bActiveTurnAllowsEditorActions = bAllowEditorActions;
+    bActiveTurnAllowsPythonAuthoring = bAllowPythonAuthoring && bAllowProjectEdits && bAllowEditorActions;
     Emit(
         ECinderLinkMessageKind::Status,
         FString::Printf(
-            TEXT("Turn started: project files %s; UE Editor actions %s; all escalation disabled."),
+            TEXT("Turn started: project files %s; UE Editor actions %s; Python authoring %s."),
             bAllowProjectEdits ? TEXT("editable") : TEXT("read-only"),
-            bAllowEditorActions ? TEXT("enabled") : TEXT("read-only")));
+            bAllowEditorActions ? TEXT("enabled") : TEXT("read-only"),
+            bActiveTurnAllowsPythonAuthoring ? TEXT("ON (Unreal host permissions)") : TEXT("off")));
     return true;
 }
 
 bool FCinderLinkAppServerClient::InterruptTurn(FString& OutError)
 {
+    RevokePythonAuthoring();
     if (!IsReady() || !bTurnInProgress)
     {
         OutError = TEXT("There is no active turn to stop.");
@@ -234,6 +240,7 @@ bool FCinderLinkAppServerClient::Tick(float DeltaTime)
         bReportedProcessExit = true;
         bTurnInProgress = false;
         bActiveTurnAllowsEditorActions = false;
+        RevokePythonAuthoring();
         ActiveTurnId.Reset();
         ThreadId.Reset();
         PendingRequests.Reset();
@@ -288,7 +295,7 @@ void FCinderLinkAppServerClient::SendInitialize()
     TSharedRef<FJsonObject> ClientInfo = MakeShared<FJsonObject>();
     ClientInfo->SetStringField(TEXT("name"), TEXT("cinderlink"));
     ClientInfo->SetStringField(TEXT("title"), TEXT("CinderLink"));
-    ClientInfo->SetStringField(TEXT("version"), TEXT("0.2.1"));
+    ClientInfo->SetStringField(TEXT("version"), TEXT("1.0.0"));
 
     TSharedRef<FJsonObject> Params = MakeParams();
     Params->SetObjectField(TEXT("clientInfo"), ClientInfo);
@@ -351,6 +358,16 @@ void FCinderLinkAppServerClient::SendThreadStart()
     RuntimeRoots.Add(MakeShared<FJsonValueString>(ProjectRoot));
     Params->SetArrayField(TEXT("runtimeWorkspaceRoots"), RuntimeRoots);
     Params->SetStringField(TEXT("serviceName"), TEXT("cinderlink"));
+    Params->SetStringField(TEXT("developerInstructions"), TEXT(
+        "You are working inside CinderLink 1.0.0 in Unreal Editor. Use the supplied UE tools to inspect and edit the current project. "
+        "Python authoring requires the user to enable the panel mode. Check ue_python_status before using it. "
+        "Never bypass a disabled Python mode by creating startup scripts, console commands, launching another Unreal process or asking other tools to run Python. "
+        "When authoring is enabled, use ue_python_execute for short UE Python batches. Declare all affected /Game directories in backup_paths, "
+        "including external actor/object folders for World Partition. Inspect dependencies first. [] is only for inspection. "
+        "Do not read unrelated host files, credentials or personal/session data; do not use network, hardware, background threads, persistent callbacks or startup hooks. "
+        "Archive and verify changes before saving a reusable recipe with ue_python_save_recipe. Read error results before retrying because partial changes remain. "
+        "No hard timeout or universal undo exists for in-process Python. Preserve existing art and runtime behavior unless the user requests a change. "
+        "Report code, asset changes, validation and limitations in the user's language."));
 
     FString Error;
     if (SendRequest(TEXT("thread/start"), Params, EPendingRequest::ThreadStart, Error) == 0)
@@ -413,6 +430,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         if (Kind == EPendingRequest::TurnStart)
         {
             bActiveTurnAllowsEditorActions = false;
+            RevokePythonAuthoring();
             ActiveTurnId.Reset();
         }
         if (Kind != EPendingRequest::TurnStart && Kind != EPendingRequest::Interrupt)
@@ -582,6 +600,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         {
             bTurnInProgress = false;
             bActiveTurnAllowsEditorActions = false;
+            RevokePythonAuthoring();
             ActiveTurnId.Reset();
             Emit(ECinderLinkMessageKind::Error, TEXT("App Server returned an invalid turn identity."));
             return;
@@ -591,6 +610,7 @@ void FCinderLinkAppServerClient::HandleResponse(const TSharedPtr<FJsonObject>& M
         {
             bTurnInProgress = false;
             bActiveTurnAllowsEditorActions = false;
+            RevokePythonAuthoring();
             Emit(ECinderLinkMessageKind::Error, TEXT("App Server omitted the active turn identity."));
         }
         return;
@@ -689,6 +709,7 @@ void FCinderLinkAppServerClient::HandleNotification(
         }
         bTurnInProgress = false;
         bActiveTurnAllowsEditorActions = false;
+        RevokePythonAuthoring();
         ActiveTurnId.Reset();
         FString Status = TEXT("completed");
         if (Turn.IsValid())
@@ -787,7 +808,8 @@ void FCinderLinkAppServerClient::HandleServerRequest(
             Arguments,
             ProjectRoot,
             bActiveTurnAllowsEditorActions,
-            Summary);
+            Summary,
+            bActiveTurnAllowsPythonAuthoring);
         SendDynamicToolResponse(Id, Result);
         Emit(
             Result->GetBoolField(TEXT("success")) ? ECinderLinkMessageKind::EditorAction : ECinderLinkMessageKind::Warning,

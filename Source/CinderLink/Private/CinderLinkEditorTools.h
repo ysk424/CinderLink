@@ -7,9 +7,8 @@
 #include "Dom/JsonObject.h"
 
 /**
- * Executes the small, validated set of Unreal Editor actions exposed to Codex.
- * This layer never opens a listener and never executes arbitrary script or
- * console text. All calls arrive through the existing App Server stdio pipe.
+ * Dispatches the bounded Editor tools and the separately enabled Python
+ * authoring tools. All calls arrive through the App Server stdio pipe.
  */
 class FCinderLinkEditorTools
 {
@@ -24,5 +23,6 @@ public:
         const TSharedPtr<FJsonObject>& Arguments,
         const FString& ProjectRoot,
         bool bAllowEditorActions,
-        FString& OutSummary);
+        FString& OutSummary,
+        bool bAllowPythonAuthoring = false);
 };

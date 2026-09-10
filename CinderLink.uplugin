@@ -1,7 +1,7 @@
 {
   "FileVersion": 3,
-  "Version": 3,
-  "VersionName": "0.2.1",
+  "Version": 10000,
+  "VersionName": "1.0.0",
   "FriendlyName": "CinderLink",
   "Description": "A local-first, auditable AI agent panel for Unreal Editor.",
   "Category": "Editor",
@@ -10,11 +10,15 @@
   "DocsURL": "https://github.com/ysk424/CinderLink#readme",
   "SupportURL": "https://github.com/ysk424/CinderLink/issues",
   "CanContainContent": false,
-  "IsBetaVersion": true,
+  "IsBetaVersion": false,
   "Installed": false,
   "EnabledByDefault": false,
   "SupportedTargetPlatforms": [
     "Win64"
+  ],
+  "Plugins": [
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "EditorScriptingUtilities", "Enabled": true }
   ],
   "Modules": [
     {

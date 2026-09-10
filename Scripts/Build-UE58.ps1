@@ -29,6 +29,10 @@ if ((Split-Path -Parent $resolvedPackage) -ne $resolvedArtifactRoot -or
     throw "Refusing to clean an unexpected package path: $resolvedPackage"
 }
 if (Test-Path -LiteralPath $resolvedPackage) {
+    if ((Resolve-Path -LiteralPath $resolvedPackage).Path -ne $resolvedPackage) { throw 'Unexpected resolved package path.' }
+    $links = @(Get-Item -LiteralPath $resolvedArtifactRoot, $resolvedPackage -Force;
+        Get-ChildItem -LiteralPath $resolvedPackage -Recurse -Force) | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }
+    if (@($links).Count) { throw 'A reparse point exists in the package removal path.' }
     Remove-Item -LiteralPath $resolvedPackage -Recurse -Force
 }
 New-Item -ItemType Directory -Path $resolvedArtifactRoot -Force | Out-Null

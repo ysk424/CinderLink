@@ -10,6 +10,7 @@
 class SCheckBox;
 class SMultiLineEditableTextBox;
 class STextBlock;
+enum class ECheckBoxState : uint8;
 
 class SCinderLinkPanel final : public SCompoundWidget
 {
@@ -25,6 +26,10 @@ private:
     FReply OnNewThreadClicked();
     FReply OnSendClicked();
     FReply OnInterruptClicked();
+    void OnPythonAuthoringChanged(ECheckBoxState State);
+    void OnEditPermissionChanged(ECheckBoxState State);
+    void ResetPythonAuthoring();
+    FText GetModeText() const;
 
     void HandleMessage(const FCinderLinkMessage& Message);
     void RefreshExecutablePath();
@@ -44,6 +49,7 @@ private:
     TSharedPtr<SMultiLineEditableTextBox> InputBox;
     TSharedPtr<SCheckBox> AllowEditsCheckBox;
     TSharedPtr<SCheckBox> AllowEditorActionsCheckBox;
+    TSharedPtr<SCheckBox> PythonAuthoringCheckBox;
 
     FString ExecutablePath;
     FString ExecutableError;
